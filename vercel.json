@@ -1,0 +1,30 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "api/index.ts",
+      "use": "@vercel/node"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "/api/index.ts"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/public/$1"
+    }
+  ],
+  "env": {
+    "PLAYWRIGHT_BROWSERS_PATH": "0",
+    "VERCEL": "1"
+  },
+  "functions": {
+    "api/index.ts": {
+      "maxDuration": 60,
+      "memory": 3008
+    }
+  }
+}
+
