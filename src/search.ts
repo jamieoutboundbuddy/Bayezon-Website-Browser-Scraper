@@ -29,10 +29,103 @@ const TIMEOUTS = {
 let globalBrowser: Browser | null = null;
 
 /**
+ * Try to select UK/US in country/region selector popups
+ */
+async function selectEnglishRegion(page: Page): Promise<boolean> {
+  console.log('  Checking for country/region selector...');
+  
+  // Common country dropdown selectors
+  const countryDropdownSelectors = [
+    'select[name*="country" i]',
+    'select[id*="country" i]',
+    'select[class*="country" i]',
+    '[data-testid*="country"] select',
+    '[class*="locale"] select',
+    '[class*="region"] select',
+  ];
+  
+  // Try to find and change country dropdown to UK/US
+  for (const selector of countryDropdownSelectors) {
+    try {
+      const dropdown = page.locator(selector).first();
+      if (await dropdown.isVisible({ timeout: TIMEOUTS.popupDismiss })) {
+        // Try UK first, then US
+        try {
+          await dropdown.selectOption({ label: 'United Kingdom' });
+          console.log('    ✓ Selected United Kingdom from dropdown');
+          await sleep(500);
+          return true;
+        } catch {
+          try {
+            await dropdown.selectOption({ value: 'GB' });
+            console.log('    ✓ Selected GB from dropdown');
+            await sleep(500);
+            return true;
+          } catch {
+            try {
+              await dropdown.selectOption({ label: 'United States' });
+              console.log('    ✓ Selected United States from dropdown');
+              await sleep(500);
+              return true;
+            } catch {
+              // Continue to next dropdown
+            }
+          }
+        }
+      }
+    } catch (e) {
+      // Continue
+    }
+  }
+  
+  // Try clicking UK/US country links directly
+  const countryLinkSelectors = [
+    'a:has-text("United Kingdom")',
+    'a:has-text("UK")',
+    'button:has-text("United Kingdom")',
+    'button:has-text("UK")',
+    '[data-country="GB"]',
+    '[data-country="UK"]',
+    '[data-locale="en-GB"]',
+    '[data-locale="en_GB"]',
+    'a[href*="/en-gb"]',
+    'a[href*="/en_gb"]',
+    'a[href*="country=GB"]',
+    'a[href*="country=UK"]',
+    // US fallback
+    'a:has-text("United States")',
+    'button:has-text("United States")',
+    '[data-country="US"]',
+    '[data-locale="en-US"]',
+    'a[href*="/en-us"]',
+    'a[href*="country=US"]',
+  ];
+  
+  for (const selector of countryLinkSelectors) {
+    try {
+      const link = page.locator(selector).first();
+      if (await link.isVisible({ timeout: TIMEOUTS.popupDismiss })) {
+        await link.click({ timeout: TIMEOUTS.popupDismiss });
+        console.log(`    ✓ Clicked country link: "${selector.substring(0, 40)}..."`);
+        await sleep(1000);
+        return true;
+      }
+    } catch (e) {
+      // Continue
+    }
+  }
+  
+  return false;
+}
+
+/**
  * Dismiss common popups: cookie consent, geo selectors, newsletters, modals
  */
 async function dismissPopups(page: Page): Promise<void> {
   console.log('  Checking for popups to dismiss...');
+  
+  // First, try to select UK/US in any country selector
+  const regionSelected = await selectEnglishRegion(page);
   
   // Common popup dismiss button selectors
   const dismissSelectors = [
@@ -63,18 +156,11 @@ async function dismissPopups(page: Page): Promise<void> {
     '[aria-label="Accept cookies"]',
     '[aria-label="accept cookies"]',
     
-    // Geo/Country selector - Close or confirm buttons
+    // Geo/Country selector - Confirm after selecting UK (or dismiss if no selection made)
     'button:has-text("Shop Now")',
     'button:has-text("Stay")',
     'button:has-text("Confirm")',
     'button:has-text("Go to")',
-    '[class*="geo"] button',
-    '[class*="country"] button:has-text("Shop")',
-    '[class*="country"] button:has-text("Continue")',
-    '[class*="location"] button:has-text("Confirm")',
-    '[class*="locale"] button',
-    '[data-testid*="country"] button',
-    '[data-testid*="geo"] button',
     
     // Newsletter/Promo popups - Close buttons
     '[class*="newsletter"] button[aria-label*="close" i]',
@@ -143,8 +229,8 @@ async function dismissPopups(page: Page): Promise<void> {
     // Ignore backdrop click errors
   }
   
-  if (dismissed > 0) {
-    console.log(`    ✓ Dismissed ${dismissed} popup(s)`);
+  if (dismissed > 0 || regionSelected) {
+    console.log(`    ✓ Handled ${dismissed} popup(s)${regionSelected ? ' + selected UK/US region' : ''}`);
   } else {
     console.log('    No popups detected');
   }
@@ -174,17 +260,76 @@ export async function closeBrowser(): Promise<void> {
 }
 
 /**
+ * Try to force English/UK version of URL
+ */
+function getEnglishUrl(url: string): string[] {
+  const urls = [url];
+  
+  try {
+    const urlObj = new URL(url);
+    const hostname = urlObj.hostname;
+    const pathname = urlObj.pathname;
+    
+    // Add URL variants that might force English
+    // 1. Add ?country=GB or &country=GB
+    const separator = url.includes('?') ? '&' : '?';
+    urls.push(`${url}${separator}country=GB`);
+    urls.push(`${url}${separator}country=UK`);
+    urls.push(`${url}${separator}locale=en-GB`);
+    
+    // 2. Try /en-gb/ path variant
+    if (!pathname.includes('/en-gb') && !pathname.includes('/en-us') && !pathname.includes('/en/')) {
+      urls.push(`${urlObj.origin}/en-gb${pathname}`);
+      urls.push(`${urlObj.origin}/en${pathname}`);
+    }
+    
+    // 3. For regional subdomains, try main domain
+    if (hostname.match(/^(be|nl|de|fr|es|it)\./)) {
+      const mainDomain = hostname.replace(/^(be|nl|de|fr|es|it)\./, '');
+      urls.push(`https://${mainDomain}${pathname}`);
+      urls.push(`https://uk.${mainDomain}${pathname}`);
+    }
+    
+  } catch (e) {
+    // If URL parsing fails, just return original
+  }
+  
+  return urls;
+}
+
+/**
  * Safe page navigation with fallback strategies
  */
 async function safeGoto(page: Page, url: string): Promise<boolean> {
-  try {
-    await page.goto(url, { waitUntil: 'networkidle', timeout: TIMEOUTS.navigation });
-    await sleep(2000);
-    return true;
-  } catch (error) {
-    console.log(`Network idle failed for ${url}, trying domcontentloaded...`);
+  // Get potential English URL variants
+  const urlsToTry = getEnglishUrl(url);
+  
+  for (const tryUrl of urlsToTry) {
+    try {
+      console.log(`  Trying: ${tryUrl}`);
+      await page.goto(tryUrl, { waitUntil: 'networkidle', timeout: TIMEOUTS.navigation });
+      await sleep(2000);
+      
+      // Check if we landed on an English page (basic check)
+      const pageUrl = page.url();
+      const pageContent = await page.content();
+      const isEnglish = pageUrl.includes('/en') || 
+                        pageUrl.includes('country=GB') || 
+                        pageUrl.includes('country=UK') ||
+                        pageUrl.includes('country=US') ||
+                        pageContent.includes('lang="en"') ||
+                        pageContent.includes("lang='en'");
+      
+      if (isEnglish || tryUrl === url) {
+        return true;
+      }
+      console.log(`  Page not in English, trying next variant...`);
+    } catch (error) {
+      // Try next URL variant
+    }
   }
   
+  // Fallback: just try the original URL with less strict loading
   try {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: TIMEOUTS.fallbackNav });
     await sleep(2000);
