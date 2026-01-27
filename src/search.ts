@@ -23,9 +23,132 @@ const TIMEOUTS = {
   fallbackNav: 20000,
   element: 5000,
   elementShort: 2000,
+  popupDismiss: 1500,
 };
 
 let globalBrowser: Browser | null = null;
+
+/**
+ * Dismiss common popups: cookie consent, geo selectors, newsletters, modals
+ */
+async function dismissPopups(page: Page): Promise<void> {
+  console.log('  Checking for popups to dismiss...');
+  
+  // Common popup dismiss button selectors
+  const dismissSelectors = [
+    // Cookie consent - Accept/OK buttons
+    'button:has-text("Accept")',
+    'button:has-text("Accept All")',
+    'button:has-text("Accept Cookies")',
+    'button:has-text("Allow")',
+    'button:has-text("Allow All")',
+    'button:has-text("Got it")',
+    'button:has-text("I Agree")',
+    'button:has-text("Agree")',
+    'button:has-text("OK")',
+    'button:has-text("Continue")',
+    'button:has-text("Yes")',
+    '[id*="cookie"] button:has-text("Accept")',
+    '[class*="cookie"] button:has-text("Accept")',
+    '[id*="consent"] button:has-text("Accept")',
+    '[class*="consent"] button:has-text("Accept")',
+    '[data-testid*="cookie-accept"]',
+    '[data-testid*="accept-cookies"]',
+    '#onetrust-accept-btn-handler',
+    '.onetrust-close-btn-handler',
+    '#CybotCookiebotDialogBodyButtonAccept',
+    '#CybotCookiebotDialogBodyLevelButtonAccept',
+    '.cc-accept',
+    '.cc-btn.cc-allow',
+    '[aria-label="Accept cookies"]',
+    '[aria-label="accept cookies"]',
+    
+    // Geo/Country selector - Close or confirm buttons
+    'button:has-text("Shop Now")',
+    'button:has-text("Stay")',
+    'button:has-text("Confirm")',
+    'button:has-text("Go to")',
+    '[class*="geo"] button',
+    '[class*="country"] button:has-text("Shop")',
+    '[class*="country"] button:has-text("Continue")',
+    '[class*="location"] button:has-text("Confirm")',
+    '[class*="locale"] button',
+    '[data-testid*="country"] button',
+    '[data-testid*="geo"] button',
+    
+    // Newsletter/Promo popups - Close buttons
+    '[class*="newsletter"] button[aria-label*="close" i]',
+    '[class*="popup"] button[aria-label*="close" i]',
+    '[class*="modal"] button[aria-label*="close" i]',
+    '[class*="overlay"] button[aria-label*="close" i]',
+    'button[aria-label="Close"]',
+    'button[aria-label="close"]',
+    'button[aria-label="Close dialog"]',
+    'button[aria-label="Dismiss"]',
+    '[data-dismiss="modal"]',
+    '.modal-close',
+    '.popup-close',
+    '.close-button',
+    '.btn-close',
+    
+    // Generic close buttons (X icons)
+    '[class*="close"]:not([class*="closed"]) svg',
+    '[class*="dismiss"] svg',
+    'button:has(svg[class*="close"])',
+    '[role="dialog"] button:has-text("×")',
+    '[role="dialog"] button:has-text("✕")',
+    '[role="dialog"] button:has-text("X")',
+    
+    // Specific vendor modals
+    '.klaviyo-close-form',
+    '[data-testid="modal-close"]',
+    '[data-testid="close-modal"]',
+    '#attentive_overlay button.attentive_close',
+  ];
+  
+  let dismissed = 0;
+  
+  for (const selector of dismissSelectors) {
+    try {
+      const element = page.locator(selector).first();
+      const isVisible = await element.isVisible({ timeout: TIMEOUTS.popupDismiss });
+      
+      if (isVisible) {
+        await element.click({ timeout: TIMEOUTS.popupDismiss, force: true });
+        dismissed++;
+        console.log(`    ✓ Dismissed popup with: "${selector.substring(0, 50)}..."`);
+        await sleep(500); // Wait for popup animation
+      }
+    } catch (e) {
+      // Continue to next selector - element not found or not clickable
+    }
+  }
+  
+  // Also try pressing Escape key to close any remaining modals
+  try {
+    await page.keyboard.press('Escape');
+    await sleep(300);
+  } catch (e) {
+    // Ignore escape key errors
+  }
+  
+  // Click outside modals (on body/backdrop) to close them
+  try {
+    const backdrop = page.locator('[class*="backdrop"], [class*="overlay"]:not([class*="video"])').first();
+    if (await backdrop.isVisible({ timeout: 500 })) {
+      await page.mouse.click(10, 10); // Click top-left corner
+      await sleep(300);
+    }
+  } catch (e) {
+    // Ignore backdrop click errors
+  }
+  
+  if (dismissed > 0) {
+    console.log(`    ✓ Dismissed ${dismissed} popup(s)`);
+  } else {
+    console.log('    No popups detected');
+  }
+}
 
 /**
  * Initialize browser if not already initialized
@@ -271,6 +394,13 @@ export async function runSearchJourney(
       throw new Error('Failed to load homepage');
     }
 
+    // Dismiss any popups (cookies, geo selectors, newsletters)
+    await dismissPopups(page);
+    await sleep(500);
+    
+    // Try dismissing again after a short wait (some popups load delayed)
+    await dismissPopups(page);
+
     // Screenshot homepage
     const homepagePath = getArtifactPath(jobId, domainName, 'homepage');
     await page.screenshot({ path: homepagePath, quality: 70, fullPage: false });
@@ -350,6 +480,9 @@ export async function runSearchJourney(
 
     // Wait for results page to load
     await sleep(2000);
+    
+    // Dismiss any popups on results page
+    await dismissPopups(page);
 
     // Screenshot search results
     const searchResultsPath = getArtifactPath(jobId, domainName, 'search_results');
