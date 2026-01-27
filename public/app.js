@@ -255,3 +255,4 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('empty-state').classList.remove('hidden');
 });
 
+

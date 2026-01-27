@@ -26,22 +26,26 @@ WORKDIR /app
 
 # Copy package files
 COPY package*.json ./
+COPY tsconfig.json ./
 
-# Install dependencies
+# Install dependencies (including devDependencies for build)
 RUN npm ci
 
-# Install Playwright browsers
-RUN npx playwright install --with-deps chromium
-
 # Copy source files
-COPY . .
+COPY src/ ./src/
+COPY public/ ./public/
 
-# Build TypeScript
-RUN npm run build
+# Build TypeScript - explicitly run tsc
+RUN npx tsc
+RUN ls -la dist/ && echo "Build successful!"
+
+# Install Playwright browsers AFTER build
+RUN npx playwright install --with-deps chromium
 
 # Expose port
 EXPOSE 3000
 
 # Start server
-CMD ["npm", "start"]
+CMD ["node", "dist/server.js"]
+
 
