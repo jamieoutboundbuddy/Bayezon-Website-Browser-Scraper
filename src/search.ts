@@ -374,10 +374,21 @@ export async function runSearchJourney(
   query: string
 ): Promise<SearchResult> {
   const browser = await getBrowser();
-  const page = await browser.newPage();
   
-  // Set viewport
-  await page.setViewportSize({ width: 1280, height: 720 });
+  // Create page with English locale settings
+  const context = await browser.newContext({
+    locale: 'en-US',
+    timezoneId: 'America/New_York',
+    geolocation: { longitude: -73.935242, latitude: 40.730610 }, // New York
+    permissions: ['geolocation'],
+    extraHTTPHeaders: {
+      'Accept-Language': 'en-US,en;q=0.9',
+    },
+  });
+  const page = await context.newPage();
+  
+  // Set larger viewport for better screenshots
+  await page.setViewportSize({ width: 1280, height: 1024 });
   
   const domainName = getDomainName(domain);
   const normalizedDomain = normalizeDomain(domain);
@@ -523,6 +534,7 @@ export async function runSearchJourney(
     };
   } finally {
     await page.close();
+    await context.close();
   }
 }
 
