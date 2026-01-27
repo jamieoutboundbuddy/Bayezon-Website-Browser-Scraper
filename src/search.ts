@@ -603,7 +603,22 @@ export async function runSearchJourney(
 
     // Type query
     await page.keyboard.type(query, { delay: 100 });
-    await sleep(1000); // Wait for query to appear
+    
+    // Wait for autocomplete/search suggestions to load
+    console.log(`  Waiting for search suggestions to load...`);
+    await sleep(2500); // Give time for autocomplete API to respond
+    
+    // Try to wait for search suggestion elements to appear
+    try {
+      await page.waitForSelector('[class*="suggest"], [class*="autocomplete"], [class*="dropdown"], [class*="results"], [class*="product"]', { 
+        timeout: 3000,
+        state: 'visible' 
+      });
+      console.log(`  ✓ Search suggestions appeared`);
+      await sleep(500); // Extra moment for images to load
+    } catch (e) {
+      console.log(`  ⚠ No autocomplete detected, continuing...`);
+    }
 
     // Screenshot search modal with query
     const searchModalPath = getArtifactPath(jobId, domainName, 'search_modal');
