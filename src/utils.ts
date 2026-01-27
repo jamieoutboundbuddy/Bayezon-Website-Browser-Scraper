@@ -33,12 +33,27 @@ export function getArtifactUrl(jobId: string, domain: string, stage: string): st
 
 /**
  * Normalize domain URL
+ * - Adds https:// if missing
+ * - Adds .com if no TLD is detected
  */
 export function normalizeDomain(domain: string): string {
-  if (!domain.startsWith('http://') && !domain.startsWith('https://')) {
-    domain = 'https://' + domain;
+  // Remove any leading/trailing whitespace
+  domain = domain.trim();
+  
+  // Remove protocol if present to normalize
+  let cleanDomain = domain.replace(/^https?:\/\//, '');
+  
+  // Remove trailing slashes and paths for TLD check
+  const domainPart = cleanDomain.split('/')[0];
+  
+  // Check if domain has a TLD (contains a dot in the domain part)
+  if (!domainPart.includes('.')) {
+    // No TLD found, add .com
+    cleanDomain = domainPart + '.com' + cleanDomain.slice(domainPart.length);
   }
-  return domain;
+  
+  // Add https:// prefix
+  return 'https://' + cleanDomain;
 }
 
 /**
