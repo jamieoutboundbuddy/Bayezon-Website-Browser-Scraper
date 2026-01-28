@@ -5,6 +5,7 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import path from 'path';
+import fs from 'fs';
 import dotenv from 'dotenv';
 
 import {
@@ -13,6 +14,7 @@ import {
   cleanupOldJobs,
 } from './jobs';
 import { runSearchJourney, closeBrowser } from './search';
+import { SearchScreenshot } from './types';
 
 dotenv.config();
 
@@ -68,21 +70,154 @@ app.post('/api/search', (req: Request, res: Response) => {
 });
 
 /**
+ * Convert screenshot URL to base64 data URL for OpenAI
+ */
+function screenshotToBase64(screenshotUrl: string): string | null {
+  try {
+    // Convert URL path to file path
+    const filePath = path.join(process.cwd(), screenshotUrl);
+    if (fs.existsSync(filePath)) {
+      const imageBuffer = fs.readFileSync(filePath);
+      const base64 = imageBuffer.toString('base64');
+      return `data:image/jpeg;base64,${base64}`;
+    }
+  } catch (e) {
+    console.error('Error converting screenshot to base64:', e);
+  }
+  return null;
+}
+
+/**
+ * Format screenshots for OpenAI Vision API
+ */
+interface OpenAIImageContent {
+  type: 'image_url';
+  image_url: {
+    url: string;
+    detail?: 'low' | 'high' | 'auto';
+  };
+}
+
+interface ScreenshotWithBase64 extends SearchScreenshot {
+  base64?: string;
+  openai_format?: OpenAIImageContent;
+}
+
+function formatScreenshotsForOpenAI(screenshots: SearchScreenshot[], baseUrl?: string): ScreenshotWithBase64[] {
+  return screenshots.map(screenshot => {
+    const base64 = screenshotToBase64(screenshot.screenshotUrl);
+    const result: ScreenshotWithBase64 = {
+      ...screenshot,
+    };
+    
+    if (base64) {
+      result.base64 = base64;
+      result.openai_format = {
+        type: 'image_url',
+        image_url: {
+          url: base64,
+          detail: 'high',
+        },
+      };
+    } else if (baseUrl) {
+      // Fallback to URL if base64 fails
+      result.openai_format = {
+        type: 'image_url',
+        image_url: {
+          url: `${baseUrl}${screenshot.screenshotUrl}`,
+          detail: 'high',
+        },
+      };
+    }
+    
+    return result;
+  });
+}
+
+/**
  * GET /api/search/:jobId - Get search status & results
+ * Query params:
+ *   - format=base64: Include base64-encoded images for OpenAI
+ *   - base_url=https://...: Base URL for screenshot URLs (for OpenAI URL format)
  * Returns: { jobId, status, progressPct, screenshots, error? }
  */
 app.get('/api/search/:jobId', (req: Request, res: Response) => {
   try {
     const { jobId } = req.params;
+    const { format, base_url } = req.query;
     const job = getJob(jobId);
     
     if (!job) {
       return res.status(404).json({ error: 'Job not found' });
     }
     
+    // If base64 format requested, include base64 encoded images
+    if (format === 'base64' || format === 'openai') {
+      const result = {
+        ...job.result,
+        screenshots: formatScreenshotsForOpenAI(job.result.screenshots, base_url as string),
+      };
+      return res.json(result);
+    }
+    
     res.json(job.result);
   } catch (error: any) {
     console.error('Error getting search job:', error);
+    res.status(500).json({ error: error.message || 'Internal server error' });
+  }
+});
+
+/**
+ * POST /api/search/sync - Synchronous search (waits for completion)
+ * Body: { domain: string, query: string, timeout?: number }
+ * Returns: Complete result with base64 images ready for OpenAI
+ */
+app.post('/api/search/sync', async (req: Request, res: Response) => {
+  try {
+    const { domain, query, timeout = 60000 } = req.body;
+    
+    if (!domain) {
+      return res.status(400).json({ error: 'domain is required' });
+    }
+    
+    if (!query) {
+      return res.status(400).json({ error: 'query is required' });
+    }
+    
+    console.log(`[SYNC] Starting synchronous search: ${domain} - "${query}"`);
+    const jobId = createJob(domain, query);
+    
+    // Run search and wait for completion
+    const startTime = Date.now();
+    await runSearchJourney(jobId, domain, query);
+    const duration = Date.now() - startTime;
+    
+    const job = getJob(jobId);
+    if (!job) {
+      return res.status(500).json({ error: 'Job disappeared after completion' });
+    }
+    
+    // Get base URL from request for full URLs
+    const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+    const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost:3000';
+    const baseUrl = `${protocol}://${host}`;
+    
+    // Return result with base64 images
+    const result = {
+      ...job.result,
+      duration_ms: duration,
+      screenshots: formatScreenshotsForOpenAI(job.result.screenshots, baseUrl),
+      // Convenience field: array of OpenAI-ready image objects
+      openai_images: formatScreenshotsForOpenAI(job.result.screenshots, baseUrl)
+        .map(s => s.openai_format)
+        .filter(Boolean),
+    };
+    
+    console.log(`[SYNC] Completed in ${duration}ms with ${result.screenshots.length} screenshots`);
+    res.json(result);
+    
+  } catch (error: any) {
+    console.error('Error in sync search:', error);
     res.status(500).json({ error: error.message || 'Internal server error' });
   }
 });
