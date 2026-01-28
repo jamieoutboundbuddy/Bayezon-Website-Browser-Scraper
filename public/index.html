@@ -51,10 +51,25 @@
             <input 
               type="text" 
               id="query-input"
-              placeholder="e.g., wetsuit"
+              placeholder="e.g., wetsuits for cold water swimming"
               class="w-full px-4 py-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
               onkeypress="if(event.key === 'Enter') startSearch()"
             >
+          </div>
+          
+          <!-- AI Analysis Toggle -->
+          <div class="flex items-center gap-3 p-4 bg-gradient-to-r from-purple-50 to-indigo-50 rounded-lg border border-purple-200">
+            <label class="relative inline-flex items-center cursor-pointer">
+              <input type="checkbox" id="analyze-toggle" class="sr-only peer" checked>
+              <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+            </label>
+            <div>
+              <span class="text-sm font-medium text-slate-700">
+                <i class="fas fa-brain text-purple-600 mr-1"></i>
+                Enable AI Analysis
+              </span>
+              <p class="text-xs text-slate-500">Analyze search quality for email outreach (requires OpenAI)</p>
+            </div>
           </div>
           
           <button 
@@ -82,12 +97,12 @@
               style="width: 0%"
             ></div>
           </div>
-          <p id="progress-message" class="text-sm text-slate-600 mt-3">Starting search...</p>
+          <p id="progress-message" class="text-sm text-slate-600 mt-3">Waiting to start...</p>
         </div>
       </div>
 
       <!-- Screenshots Section -->
-      <div id="screenshots-section" class="hidden">
+      <div id="screenshots-section" class="hidden mb-8">
         <div class="flex justify-between items-center mb-6">
           <h2 class="text-2xl font-bold text-slate-900">
             <i class="fas fa-images text-blue-600 mr-3"></i>
@@ -97,6 +112,92 @@
 
         <div id="screenshots-container" class="grid grid-cols-1 md:grid-cols-3 gap-6">
           <!-- Screenshots will be inserted here -->
+        </div>
+      </div>
+
+      <!-- Analysis Results Section -->
+      <div id="analysis-section" class="hidden mb-8">
+        <div class="flex justify-between items-center mb-6">
+          <h2 class="text-2xl font-bold text-slate-900">
+            <i class="fas fa-brain text-purple-600 mr-3"></i>
+            AI Analysis Results
+          </h2>
+        </div>
+
+        <!-- Prospect Score Card -->
+        <div id="prospect-card" class="bg-white rounded-lg shadow-sm border border-slate-200 p-6 mb-6">
+          <div class="flex items-center justify-between">
+            <div>
+              <h3 class="text-lg font-semibold text-slate-900 mb-1">Prospect Score</h3>
+              <p id="prospect-recommendation" class="text-sm text-slate-600"></p>
+            </div>
+            <div class="text-center">
+              <div id="prospect-score" class="text-5xl font-bold"></div>
+              <p id="prospect-label" class="text-sm font-medium mt-1"></p>
+            </div>
+          </div>
+          <div id="prospect-reasons" class="mt-4 pt-4 border-t border-slate-200"></div>
+        </div>
+
+        <!-- Search Quality Card -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+          <div class="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
+            <h3 class="text-lg font-semibold text-slate-900 mb-4">
+              <i class="fas fa-search-plus text-blue-600 mr-2"></i>
+              Search Quality
+            </h3>
+            <div id="search-quality-content"></div>
+          </div>
+          
+          <div class="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
+            <h3 class="text-lg font-semibold text-slate-900 mb-4">
+              <i class="fas fa-box text-green-600 mr-2"></i>
+              Search Results
+            </h3>
+            <div id="search-results-content"></div>
+          </div>
+        </div>
+
+        <!-- Issues Found -->
+        <div id="issues-card" class="bg-white rounded-lg shadow-sm border border-slate-200 p-6 mb-6 hidden">
+          <h3 class="text-lg font-semibold text-slate-900 mb-4">
+            <i class="fas fa-exclamation-triangle text-amber-600 mr-2"></i>
+            Issues Found
+          </h3>
+          <div id="issues-content"></div>
+        </div>
+
+        <!-- Email Context Card -->
+        <div class="bg-white rounded-lg shadow-sm border border-slate-200 p-6 mb-6">
+          <h3 class="text-lg font-semibold text-slate-900 mb-4">
+            <i class="fas fa-envelope text-indigo-600 mr-2"></i>
+            Email Copywriting Context
+          </h3>
+          <div id="email-context-content" class="space-y-4"></div>
+        </div>
+
+        <!-- Email Snippets Card -->
+        <div class="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-lg border border-indigo-200 p-6 mb-6">
+          <h3 class="text-lg font-semibold text-slate-900 mb-4">
+            <i class="fas fa-magic text-indigo-600 mr-2"></i>
+            Ready-to-Use Email Snippets
+          </h3>
+          <div id="email-snippets-content" class="space-y-3"></div>
+        </div>
+
+        <!-- Raw JSON Toggle -->
+        <div class="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
+          <button 
+            onclick="toggleRawJson()" 
+            class="flex items-center gap-2 text-slate-700 hover:text-slate-900 font-medium"
+          >
+            <i class="fas fa-code"></i>
+            <span id="json-toggle-text">Show Raw JSON Response</span>
+            <i id="json-toggle-icon" class="fas fa-chevron-down ml-auto"></i>
+          </button>
+          <div id="raw-json-container" class="hidden mt-4">
+            <pre id="raw-json" class="bg-slate-900 text-green-400 p-4 rounded-lg overflow-auto max-h-96 text-xs"></pre>
+          </div>
         </div>
       </div>
 
@@ -128,5 +229,3 @@
   <script src="app.js"></script>
 </body>
 </html>
-
-
