@@ -454,6 +454,21 @@ async function findSearchInput(page: Page): Promise<boolean> {
 }
 
 /**
+ * Scroll down to load lazy-loaded content
+ */
+async function scrollToLoadContent(page: Page, scrollCount: number = 3): Promise<void> {
+  for (let i = 0; i < scrollCount; i++) {
+    await page.evaluate(() => {
+      window.scrollBy(0, window.innerHeight * 0.8);
+    });
+    await sleep(800); // Wait for content to load
+  }
+  // Scroll back to top for the screenshot
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await sleep(300);
+}
+
+/**
  * Submit search (try Enter key, then button click, then URL-based)
  */
 async function submitSearch(page: Page, query: string, domain: string): Promise<boolean> {
@@ -620,9 +635,18 @@ export async function runSearchJourney(
       console.log(`  ⚠ No autocomplete detected, continuing...`);
     }
 
-    // Screenshot search modal with query
+    // Screenshot search modal with query - use taller viewport to capture suggestions
     const searchModalPath = getArtifactPath(jobId, domainName, 'search_modal');
-    await page.screenshot({ path: searchModalPath, quality: 70, fullPage: false });
+    
+    // Temporarily increase viewport height to capture autocomplete dropdown
+    await page.setViewportSize({ width: 1280, height: 1200 });
+    await sleep(300);
+    
+    await page.screenshot({ path: searchModalPath, quality: 80, fullPage: false });
+    
+    // Reset viewport
+    await page.setViewportSize({ width: 1280, height: 1024 });
+    
     const searchModalScreenshot: SearchResult['screenshots'][0] = {
       stage: 'search_modal',
       url: page.url(),
@@ -655,9 +679,27 @@ export async function runSearchJourney(
     // Dismiss any popups on results page
     await dismissPopups(page);
 
-    // Screenshot search results
+    // Scroll down to load more products and capture full results
+    console.log(`  Scrolling to load more results...`);
+    await scrollToLoadContent(page, 3); // Scroll 3 times to load lazy content
+    await sleep(1000);
+
+    // Screenshot search results - capture full page (capped at reasonable height)
     const searchResultsPath = getArtifactPath(jobId, domainName, 'search_results');
-    await page.screenshot({ path: searchResultsPath, quality: 70, fullPage: false });
+    
+    // Get page height, cap at 3000px to avoid infinite scroll issues
+    const pageHeight = await page.evaluate(() => Math.min(document.body.scrollHeight, 3000));
+    
+    // Temporarily resize viewport for taller screenshot
+    await page.setViewportSize({ width: 1280, height: pageHeight });
+    await page.evaluate(() => window.scrollTo(0, 0)); // Scroll back to top
+    await sleep(500);
+    
+    await page.screenshot({ path: searchResultsPath, quality: 80, fullPage: false });
+    
+    // Reset viewport
+    await page.setViewportSize({ width: 1280, height: 1024 });
+    
     const searchResultsScreenshot: SearchResult['screenshots'][0] = {
       stage: 'search_results',
       url: page.url(),
@@ -665,7 +707,7 @@ export async function runSearchJourney(
     };
     addScreenshotToJob(jobId, searchResultsScreenshot);
     screenshots.push(searchResultsScreenshot);
-    console.log(`  ✓ Search results screenshot captured`);
+    console.log(`  ✓ Search results screenshot captured (height: ${pageHeight}px)`);
 
     updateJobProgress(jobId, 100, 'completed');
 
