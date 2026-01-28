@@ -15,6 +15,7 @@ import {
 } from './jobs';
 import { runSearchJourney, closeBrowser } from './search';
 import { SearchScreenshot } from './types';
+import { analyzeSearchQuality, isOpenAIConfigured, ComprehensiveAnalysis } from './analyze';
 
 dotenv.config();
 
@@ -169,12 +170,12 @@ app.get('/api/search/:jobId', (req: Request, res: Response) => {
 
 /**
  * POST /api/search/sync - Synchronous search (waits for completion)
- * Body: { domain: string, query: string, timeout?: number }
- * Returns: Complete result with base64 images ready for OpenAI
+ * Body: { domain: string, query: string, analyze?: boolean }
+ * Returns: Complete result with optional AI analysis for email outreach
  */
 app.post('/api/search/sync', async (req: Request, res: Response) => {
   try {
-    const { domain, query, timeout = 60000 } = req.body;
+    const { domain, query, analyze = false } = req.body;
     
     if (!domain) {
       return res.status(400).json({ error: 'domain is required' });
@@ -184,13 +185,21 @@ app.post('/api/search/sync', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'query is required' });
     }
     
-    console.log(`[SYNC] Starting synchronous search: ${domain} - "${query}"`);
+    // Check if analysis requested but OpenAI not configured
+    if (analyze && !isOpenAIConfigured()) {
+      return res.status(400).json({ 
+        error: 'OpenAI API key not configured. Set OPENAI_API_KEY environment variable.',
+        hint: 'Add OPENAI_API_KEY to your Railway environment variables'
+      });
+    }
+    
+    console.log(`[SYNC] Starting synchronous search: ${domain} - "${query}" (analyze: ${analyze})`);
     const jobId = createJob(domain, query);
     
     // Run search and wait for completion
     const startTime = Date.now();
-    await runSearchJourney(jobId, domain, query);
-    const duration = Date.now() - startTime;
+    const searchResult = await runSearchJourney(jobId, domain, query);
+    const searchDuration = Date.now() - startTime;
     
     const job = getJob(jobId);
     if (!job) {
@@ -202,24 +211,117 @@ app.post('/api/search/sync', async (req: Request, res: Response) => {
     const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost:3000';
     const baseUrl = `${protocol}://${host}`;
     
-    // Return result with base64 images
+    // Build screenshot URLs
+    const screenshotUrls: Record<string, string> = {};
+    for (const screenshot of job.result.screenshots) {
+      screenshotUrls[screenshot.stage] = `${baseUrl}${screenshot.screenshotUrl}`;
+    }
+    
+    // If analysis requested, run OpenAI Vision analysis
+    if (analyze) {
+      console.log(`[SYNC] Running OpenAI analysis...`);
+      const analysisStartTime = Date.now();
+      
+      try {
+        const analysis = await analyzeSearchQuality(
+          domain,
+          query,
+          job.result.screenshots,
+          {
+            homepageLoaded: job.result.screenshots.some(s => s.stage === 'homepage'),
+            searchIconFound: job.result.screenshots.some(s => s.stage === 'search_modal'),
+            searchInputFound: job.result.screenshots.some(s => s.stage === 'search_modal'),
+            searchSubmitted: job.result.screenshots.some(s => s.stage === 'search_results'),
+            resultsLoaded: job.result.screenshots.some(s => s.stage === 'search_results'),
+          }
+        );
+        
+        const analysisDuration = Date.now() - analysisStartTime;
+        const totalDuration = Date.now() - startTime;
+        
+        console.log(`[SYNC] Analysis completed in ${analysisDuration}ms (total: ${totalDuration}ms)`);
+        
+        // Return comprehensive analysis response
+        const result = {
+          jobId,
+          timestamp: new Date().toISOString(),
+          duration_ms: totalDuration,
+          search_duration_ms: searchDuration,
+          analysis_duration_ms: analysisDuration,
+          status: job.result.status,
+          
+          // Full analysis data
+          ...analysis,
+          
+          // Screenshot URLs
+          screenshot_urls: screenshotUrls,
+          screenshots_count: job.result.screenshots.length,
+          
+          // Raw data if needed
+          raw_search_result: {
+            progressPct: job.result.progressPct,
+            error: job.result.error,
+          },
+        };
+        
+        return res.json(result);
+        
+      } catch (analysisError: any) {
+        console.error('[SYNC] Analysis failed:', analysisError);
+        
+        // Return search results without analysis
+        return res.json({
+          jobId,
+          timestamp: new Date().toISOString(),
+          duration_ms: Date.now() - startTime,
+          status: job.result.status,
+          analysis_error: analysisError.message,
+          screenshot_urls: screenshotUrls,
+          screenshots_count: job.result.screenshots.length,
+          screenshots: formatScreenshotsForOpenAI(job.result.screenshots, baseUrl),
+        });
+      }
+    }
+    
+    // Return basic result without analysis
     const result = {
-      ...job.result,
-      duration_ms: duration,
+      jobId,
+      timestamp: new Date().toISOString(),
+      duration_ms: searchDuration,
+      status: job.result.status,
+      progressPct: job.result.progressPct,
+      error: job.result.error,
+      screenshot_urls: screenshotUrls,
+      screenshots_count: job.result.screenshots.length,
       screenshots: formatScreenshotsForOpenAI(job.result.screenshots, baseUrl),
-      // Convenience field: array of OpenAI-ready image objects
       openai_images: formatScreenshotsForOpenAI(job.result.screenshots, baseUrl)
         .map(s => s.openai_format)
         .filter(Boolean),
     };
     
-    console.log(`[SYNC] Completed in ${duration}ms with ${result.screenshots.length} screenshots`);
+    console.log(`[SYNC] Completed in ${searchDuration}ms with ${result.screenshots.length} screenshots`);
     res.json(result);
     
   } catch (error: any) {
     console.error('Error in sync search:', error);
     res.status(500).json({ error: error.message || 'Internal server error' });
   }
+});
+
+/**
+ * GET /api/config - Check server configuration
+ */
+app.get('/api/config', (req: Request, res: Response) => {
+  res.json({
+    openai_configured: isOpenAIConfigured(),
+    version: '1.1.0',
+    features: {
+      sync_search: true,
+      async_search: true,
+      base64_screenshots: true,
+      ai_analysis: isOpenAIConfigured(),
+    },
+  });
 });
 
 /**
