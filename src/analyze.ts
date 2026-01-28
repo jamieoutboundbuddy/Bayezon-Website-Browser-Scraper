@@ -6,10 +6,20 @@ import OpenAI from 'openai';
 import fs from 'fs';
 import path from 'path';
 
-// Initialize OpenAI client
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+// Lazy-loaded OpenAI client (only initialized when needed)
+let openaiClient: OpenAI | null = null;
+
+function getOpenAIClient(): OpenAI {
+  if (!openaiClient) {
+    if (!process.env.OPENAI_API_KEY) {
+      throw new Error('OPENAI_API_KEY environment variable is not set');
+    }
+    openaiClient = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
+  }
+  return openaiClient;
+}
 
 export interface SearchIssue {
   issue: string;
@@ -257,6 +267,7 @@ Analyze the search quality and return this EXACT JSON structure:
 Be specific and use actual product names and details from the screenshots. The search query was: "${query}"`;
 
   try {
+    const openai = getOpenAIClient();
     const response = await openai.chat.completions.create({
       model: 'gpt-4o',
       messages: [
