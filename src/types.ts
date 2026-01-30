@@ -3,7 +3,7 @@
  */
 
 export interface SearchScreenshot {
-  stage: 'homepage' | 'search_modal' | 'search_results';
+  stage: 'homepage' | 'navigation' | 'search_modal' | 'search_results';
   url: string;
   screenshotUrl: string;
 }

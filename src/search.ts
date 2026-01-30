@@ -448,6 +448,93 @@ async function findSearchInput(page: Page): Promise<boolean> {
 }
 
 /**
+ * Open and screenshot navigation menu to show catalog categories
+ * This helps the AI understand what products SHOULD exist for recall analysis
+ */
+async function captureNavigationMenu(page: Page): Promise<boolean> {
+  console.log('  Attempting to capture navigation/catalog menu...');
+  
+  // Try to find and open a navigation menu
+  const navTriggerSelectors = [
+    // Hamburger menus
+    'button[aria-label*="menu" i]',
+    'button[aria-label*="Menu" i]',
+    '[class*="hamburger"]',
+    '[class*="menu-toggle"]',
+    '[class*="nav-toggle"]',
+    'button:has([class*="hamburger"])',
+    // Main nav items that might expand
+    'nav a:has-text("Shop")',
+    'nav a:has-text("Products")',
+    'nav a:has-text("Collections")',
+    'nav a:has-text("Categories")',
+    'nav button:has-text("Shop")',
+    'header a:has-text("Shop")',
+    'header a:has-text("Men")',
+    'header a:has-text("Women")',
+    // Generic nav elements
+    'nav > ul > li:first-child > a',
+    'header nav a:first-of-type',
+  ];
+  
+  for (const selector of navTriggerSelectors) {
+    try {
+      const element = page.locator(selector).first();
+      const isVisible = await element.isVisible({ timeout: TIMEOUTS.elementShort });
+      
+      if (isVisible) {
+        // Hover first (for dropdowns)
+        await element.hover({ timeout: TIMEOUTS.elementShort });
+        await sleep(800);
+        
+        // Check if a dropdown appeared
+        const dropdownSelectors = [
+          '[class*="dropdown"]',
+          '[class*="megamenu"]',
+          '[class*="submenu"]',
+          '[class*="nav-panel"]',
+          'nav ul ul',
+          '[role="menu"]',
+        ];
+        
+        for (const dropdownSel of dropdownSelectors) {
+          try {
+            const dropdown = page.locator(dropdownSel).first();
+            if (await dropdown.isVisible({ timeout: 500 })) {
+              console.log(`    ✓ Nav dropdown appeared via hover: "${selector.substring(0, 40)}..."`);
+              return true;
+            }
+          } catch (e) {
+            // Continue
+          }
+        }
+        
+        // Try clicking if hover didn't work
+        await element.click({ timeout: TIMEOUTS.elementShort });
+        await sleep(800);
+        
+        for (const dropdownSel of dropdownSelectors) {
+          try {
+            const dropdown = page.locator(dropdownSel).first();
+            if (await dropdown.isVisible({ timeout: 500 })) {
+              console.log(`    ✓ Nav menu opened via click: "${selector.substring(0, 40)}..."`);
+              return true;
+            }
+          } catch (e) {
+            // Continue
+          }
+        }
+      }
+    } catch (e) {
+      // Continue to next selector
+    }
+  }
+  
+  console.log('    ⚠ Could not open navigation menu, using homepage as catalog reference');
+  return false;
+}
+
+/**
  * Scroll down to load lazy-loaded content
  */
 async function scrollToLoadContent(page: Page, scrollCount: number = 3): Promise<void> {
@@ -581,9 +668,39 @@ export async function runSearchJourney(
     screenshots.push(homepageScreenshot);
     console.log(`  ✓ Homepage screenshot captured`);
 
+    updateJobProgress(jobId, 20, 'running');
+
+    // Step 2: Capture navigation menu (for recall/catalog analysis)
+    console.log(`[${jobId}] Capturing navigation menu for catalog context...`);
+    const navOpened = await captureNavigationMenu(page);
+    
+    // Screenshot navigation/catalog (whether menu opened or not - shows nav bar at minimum)
+    const navigationPath = getArtifactPath(jobId, domainName, 'navigation');
+    await page.setViewportSize({ width: 1280, height: 1200 }); // Taller to capture dropdown
+    await sleep(300);
+    await page.screenshot({ path: navigationPath, quality: 80, fullPage: false });
+    await page.setViewportSize({ width: 1280, height: 1024 }); // Reset
+    
+    const navigationScreenshot: SearchResult['screenshots'][0] = {
+      stage: 'navigation',
+      url: page.url(),
+      screenshotUrl: getArtifactUrl(jobId, domainName, 'navigation'),
+    };
+    addScreenshotToJob(jobId, navigationScreenshot);
+    screenshots.push(navigationScreenshot);
+    console.log(`  ✓ Navigation screenshot captured (menu opened: ${navOpened})`);
+    
+    // Close any open menu by pressing Escape or clicking elsewhere
+    try {
+      await page.keyboard.press('Escape');
+      await sleep(300);
+    } catch (e) {
+      // Ignore
+    }
+
     updateJobProgress(jobId, 33, 'running');
 
-    // Step 2: Find and click search icon
+    // Step 3: Find and click search icon
     console.log(`[${jobId}] Looking for search icon...`);
     const searchIconFound = await findAndClickSearchIcon(page);
     

@@ -86,6 +86,8 @@ function renderResults(data, hasAnalysis) {
   const reasons = qual.reasons || [];
   const analysis = data.analysis || {};
   const emailCtx = data.email_context || {};
+  const recallData = data.recall_analysis || {};
+  const recallScore = recallData.recall_score || 50;
 
   // Verdict card
   const verdictCard = document.getElementById('verdict-card');
@@ -94,21 +96,29 @@ function renderResults(data, hasAnalysis) {
   const verdictInsight = document.getElementById('verdict-insight');
   const verdictScore = document.getElementById('verdict-score');
 
-  if (action === 'outreach' || (score >= 70 && !analysis.handles_natural_language)) {
+  // POOR RECALL = ALWAYS OUTREACH (this is the key insight)
+  const hasRecallProblem = recallScore < 40 || recallData.recall_verdict === 'poor' || recallData.recall_verdict === 'very_poor';
+  
+  if (action === 'outreach' || hasRecallProblem || (score >= 70 && !analysis.handles_natural_language)) {
     verdictCard.className = 'rounded-xl shadow-lg text-white p-8 verdict-outreach';
     verdictBadge.textContent = '🎯 OUTREACH';
-    verdictTitle.textContent = 'Good Prospect - Their Search Needs Help';
-    verdictInsight.textContent = analysis.missed_opportunity || emailCtx.pain_point_summary || 'Search is not handling natural language queries well';
-  } else if (action === 'skip' || score < 40 || analysis.handles_natural_language) {
+    if (hasRecallProblem) {
+      verdictTitle.textContent = 'Great Prospect - Poor Recall Detected';
+      verdictInsight.textContent = recallData.recall_explanation || 'Search returned few results but likely missed many relevant products';
+    } else {
+      verdictTitle.textContent = 'Good Prospect - Their Search Needs Help';
+      verdictInsight.textContent = analysis.missed_opportunity || emailCtx.pain_point_summary || 'Search is not handling natural language queries well';
+    }
+  } else if (action === 'skip' || (score < 40 && recallScore >= 60)) {
     verdictCard.className = 'rounded-xl shadow-lg text-white p-8 verdict-skip';
     verdictBadge.textContent = '✓ SKIP';
     verdictTitle.textContent = 'Search Works Fine - Move On';
-    verdictInsight.textContent = 'Their search handles this query well. Look for other prospects.';
+    verdictInsight.textContent = 'Their search handles this query well with good recall. Look for other prospects.';
   } else {
     verdictCard.className = 'rounded-xl shadow-lg text-white p-8 verdict-maybe';
     verdictBadge.textContent = '? REVIEW';
     verdictTitle.textContent = 'Maybe - Worth Investigating';
-    verdictInsight.textContent = reasons[0] || 'Some issues detected, but may not be a strong fit';
+    verdictInsight.textContent = reasons[0] || recallData.recall_explanation || 'Some issues detected, but may not be a strong fit';
   }
   verdictScore.textContent = score;
 
@@ -137,6 +147,7 @@ function renderResults(data, hasAnalysis) {
   const urls = data.screenshot_urls || {};
   const stages = [
     { key: 'homepage', label: 'Homepage', icon: 'fa-home' },
+    { key: 'navigation', label: 'Navigation (Catalog)', icon: 'fa-bars' },
     { key: 'search_modal', label: 'Search Overlay', icon: 'fa-search' },
     { key: 'search_results', label: 'Results Page', icon: 'fa-list' },
   ];
@@ -164,6 +175,17 @@ function renderResults(data, hasAnalysis) {
   const detailsGrid = document.getElementById('details-grid');
   const searchResults = data.search_results || {};
   const website = data.website || {};
+  const recall = data.recall_analysis || {};
+  
+  // Recall verdict colors
+  const recallColors = {
+    excellent: 'text-green-600 bg-green-50 border-green-200',
+    good: 'text-green-500 bg-green-50 border-green-200',
+    fair: 'text-amber-600 bg-amber-50 border-amber-200',
+    poor: 'text-orange-600 bg-orange-50 border-orange-200',
+    very_poor: 'text-red-600 bg-red-50 border-red-200',
+  };
+  const recallColor = recallColors[recall.recall_verdict] || recallColors.fair;
   
   detailsGrid.innerHTML = `
     <div class="grid md:grid-cols-2 gap-4">
@@ -177,6 +199,34 @@ function renderResults(data, hasAnalysis) {
       </div>
     </div>
     
+    <!-- RECALL ANALYSIS (KEY INSIGHT) -->
+    ${recall.recall_explanation ? `
+    <div class="p-4 rounded-lg border-2 ${recallColor}">
+      <div class="flex items-center justify-between mb-2">
+        <h4 class="font-semibold flex items-center gap-2">
+          <i class="fas fa-chart-pie"></i>
+          Recall Analysis
+        </h4>
+        <span class="text-2xl font-bold">${recall.recall_score || '?'}/100</span>
+      </div>
+      <p class="text-sm mb-3">${recall.recall_explanation}</p>
+      ${recall.visible_categories?.length > 0 ? `
+      <div class="text-xs">
+        <span class="font-medium">Categories in nav:</span> ${recall.visible_categories.join(', ')}
+      </div>
+      ` : ''}
+      ${recall.missed_categories?.length > 0 ? `
+      <div class="text-xs mt-1">
+        <span class="font-medium text-red-600">Missed:</span> ${recall.missed_categories.join(', ')}
+      </div>
+      ` : ''}
+      <div class="text-xs mt-2 pt-2 border-t border-current border-opacity-20">
+        Expected: <strong>${recall.expected_product_count || '?'}</strong> products | 
+        Returned: <strong>${recall.actual_result_count || '?'}</strong> products
+      </div>
+    </div>
+    ` : ''}
+    
     <div class="bg-slate-50 rounded-lg p-4">
       <h4 class="text-sm font-medium text-slate-500 mb-2">What Search Showed</h4>
       <p class="text-slate-900">${emailCtx.what_search_returned || searchResults.products_shown_summary || 'N/A'}</p>
@@ -189,7 +239,7 @@ function renderResults(data, hasAnalysis) {
     </div>
     ` : ''}
     
-    <div class="grid md:grid-cols-3 gap-4 text-center">
+    <div class="grid md:grid-cols-4 gap-4 text-center">
       <div class="p-3">
         <div class="text-2xl mb-1 ${analysis.handles_natural_language ? 'text-green-500' : 'text-red-500'}">
           <i class="fas fa-${analysis.handles_natural_language ? 'check-circle' : 'times-circle'}"></i>
@@ -200,7 +250,13 @@ function renderResults(data, hasAnalysis) {
         <div class="text-2xl mb-1 ${searchResults.results_relevant ? 'text-green-500' : 'text-red-500'}">
           <i class="fas fa-${searchResults.results_relevant ? 'check-circle' : 'times-circle'}"></i>
         </div>
-        <p class="text-xs text-slate-600">Relevant Results</p>
+        <p class="text-xs text-slate-600">Precision</p>
+      </div>
+      <div class="p-3">
+        <div class="text-2xl mb-1 ${(recall.recall_score || 50) >= 50 ? 'text-green-500' : 'text-red-500'}">
+          <i class="fas fa-${(recall.recall_score || 50) >= 50 ? 'check-circle' : 'times-circle'}"></i>
+        </div>
+        <p class="text-xs text-slate-600">Recall</p>
       </div>
       <div class="p-3">
         <div class="text-2xl mb-1 ${website.has_autocomplete ? 'text-green-500' : 'text-slate-300'}">

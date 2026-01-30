@@ -104,6 +104,17 @@ export interface ComprehensiveAnalysis {
     products_that_should_match: string;
   };
   
+  recall_analysis: {
+    visible_categories: string[];
+    related_categories_count: number;
+    expected_product_count: string;
+    actual_result_count: number;
+    recall_score: number;
+    recall_verdict: 'excellent' | 'good' | 'fair' | 'poor' | 'very_poor';
+    missed_categories: string[];
+    recall_explanation: string;
+  };
+  
   email_context: {
     search_query_used: string;
     what_search_returned: string;
@@ -180,7 +191,14 @@ export async function analyzeSearchQuality(
 
 Your task is to analyze screenshots of a search journey and provide comprehensive data for sales outreach.
 
-IMPORTANT: We are looking for companies with POOR search that doesn't handle natural language well. These are good prospects for our AI search solution.
+CRITICAL ANALYSIS POINTS:
+1. PRECISION: Are the results shown relevant to the query?
+2. RECALL: Did the search find ALL relevant products, or miss many? This is KEY.
+
+Look at the navigation/menu screenshot to see what product categories exist. Then compare to search results.
+For example: If navigation shows "Marvel | DC | Star Wars" but "super hero" search only returns 3 Black Panther items, that's TERRIBLE RECALL - the search missed 95%+ of relevant products.
+
+A site with POOR RECALL is a GREAT prospect - even if precision looks okay (3 relevant results), missing 50+ other relevant products is a huge problem.
 
 Respond ONLY with valid JSON matching the exact structure provided. No markdown, no explanation, just JSON.`;
 
@@ -188,8 +206,11 @@ Respond ONLY with valid JSON matching the exact structure provided. No markdown,
 
 Screenshots provided (in order):
 1. Homepage
-2. Search modal/input with query typed
-3. Search results page
+2. Navigation/Menu (showing product categories - USE THIS FOR RECALL ANALYSIS)
+3. Search modal/input with query typed
+4. Search results page
+
+CRITICAL: Look at the navigation screenshot to see what product categories exist. Compare this to search results to assess RECALL. If navigation shows many related categories but search only returned a few products, that's POOR RECALL.
 
 Analyze the search quality and return this EXACT JSON structure:
 
@@ -231,6 +252,16 @@ Analyze the search quality and return this EXACT JSON structure:
     "relevant_products_exist": ["Evidence from screenshots of relevant products"],
     "products_that_should_match": "Description of products that should have matched"
   },
+  "recall_analysis": {
+    "visible_categories": ["List ALL product categories visible in navigation that relate to query"],
+    "related_categories_count": number,
+    "expected_product_count": "Estimate like '50+' or '100+' based on visible categories",
+    "actual_result_count": number from search results,
+    "recall_score": 0-100 (100=found everything, 0=missed everything),
+    "recall_verdict": "excellent|good|fair|poor|very_poor",
+    "missed_categories": ["Categories that should have matched but products didn't appear"],
+    "recall_explanation": "e.g. 'Navigation shows Marvel, DC, Star Wars collections but search only returned 3 Black Panther items - missed 95%+ of relevant products'"
+  },
   "email_context": {
     "what_search_returned": "Brief description of what results appeared",
     "what_was_missing": "What context/filtering was missing",
@@ -263,6 +294,12 @@ Analyze the search quality and return this EXACT JSON structure:
     "recommended_action": "outreach|skip|review"
   }
 }
+
+SCORING GUIDANCE:
+- POOR RECALL (recall_score < 30) = ALWAYS recommend outreach (prospect_score 80+)
+- If navigation shows many related categories but search returned few results = POOR RECALL
+- A search that returns 3 relevant items but misses 50+ is WORSE than returning 10 less-relevant items
+- "handles_natural_language" should be FALSE if recall is poor, even if precision looks okay
 
 Be specific and use actual product names and details from the screenshots. The search query was: "${query}"`;
 
@@ -360,6 +397,17 @@ Be specific and use actual product names and details from the screenshots. The s
         likely_has_relevant_products: analysisData.catalogue_analysis?.likely_has_relevant_products ?? true,
         relevant_products_exist: analysisData.catalogue_analysis?.relevant_products_exist || [],
         products_that_should_match: analysisData.catalogue_analysis?.products_that_should_match || '',
+      },
+      
+      recall_analysis: {
+        visible_categories: analysisData.recall_analysis?.visible_categories || [],
+        related_categories_count: analysisData.recall_analysis?.related_categories_count || 0,
+        expected_product_count: analysisData.recall_analysis?.expected_product_count || 'Unknown',
+        actual_result_count: analysisData.recall_analysis?.actual_result_count || analysisData.search_results?.result_count || 0,
+        recall_score: analysisData.recall_analysis?.recall_score ?? 50,
+        recall_verdict: analysisData.recall_analysis?.recall_verdict || 'fair',
+        missed_categories: analysisData.recall_analysis?.missed_categories || [],
+        recall_explanation: analysisData.recall_analysis?.recall_explanation || '',
       },
       
       email_context: {
