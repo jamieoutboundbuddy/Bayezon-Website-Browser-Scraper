@@ -1,10 +1,9 @@
 /**
- * Website search journey runner - Playwright automation for search flow
+ * Website search journey runner - Browserbase + Playwright automation
  */
 
-import { Browser, Page } from 'playwright';
-import { chromium } from 'playwright-extra';
-import StealthPlugin from 'puppeteer-extra-plugin-stealth';
+import { Browser, Page, BrowserContext, chromium } from 'playwright';
+import Browserbase from '@browserbasehq/sdk';
 import { SearchResult } from './types';
 import { 
   getArtifactPath, 
@@ -15,8 +14,19 @@ import {
 } from './utils';
 import { updateJobProgress, addScreenshotToJob, completeJob, failJob } from './jobs';
 
-// Use stealth plugin to avoid detection
-chromium.use(StealthPlugin());
+// Initialize Browserbase client (lazy)
+let browserbaseClient: Browserbase | null = null;
+
+function getBrowserbaseClient(): Browserbase {
+  if (!browserbaseClient) {
+    const apiKey = process.env.BROWSERBASE_API_KEY;
+    if (!apiKey) {
+      throw new Error('BROWSERBASE_API_KEY environment variable is not set');
+    }
+    browserbaseClient = new Browserbase({ apiKey });
+  }
+  return browserbaseClient;
+}
 
 const TIMEOUTS = {
   navigation: 30000,
@@ -26,15 +36,12 @@ const TIMEOUTS = {
   popupDismiss: 1500,
 };
 
-let globalBrowser: Browser | null = null;
-
 /**
  * Try to select UK/US in country/region selector popups
  */
 async function selectEnglishRegion(page: Page): Promise<boolean> {
   console.log('  Checking for country/region selector...');
   
-  // Common country dropdown selectors
   const countryDropdownSelectors = [
     'select[name*="country" i]',
     'select[id*="country" i]',
@@ -44,12 +51,10 @@ async function selectEnglishRegion(page: Page): Promise<boolean> {
     '[class*="region"] select',
   ];
   
-  // Try to find and change country dropdown to UK/US
   for (const selector of countryDropdownSelectors) {
     try {
       const dropdown = page.locator(selector).first();
       if (await dropdown.isVisible({ timeout: TIMEOUTS.popupDismiss })) {
-        // Try UK first, then US
         try {
           await dropdown.selectOption({ label: 'United Kingdom' });
           console.log('    ✓ Selected United Kingdom from dropdown');
@@ -68,7 +73,7 @@ async function selectEnglishRegion(page: Page): Promise<boolean> {
               await sleep(500);
               return true;
             } catch {
-              // Continue to next dropdown
+              // Continue
             }
           }
         }
@@ -78,7 +83,6 @@ async function selectEnglishRegion(page: Page): Promise<boolean> {
     }
   }
   
-  // Try clicking UK/US country links directly
   const countryLinkSelectors = [
     'a:has-text("United Kingdom")',
     'a:has-text("UK")',
@@ -92,7 +96,6 @@ async function selectEnglishRegion(page: Page): Promise<boolean> {
     'a[href*="/en_gb"]',
     'a[href*="country=GB"]',
     'a[href*="country=UK"]',
-    // US fallback
     'a:has-text("United States")',
     'button:has-text("United States")',
     '[data-country="US"]',
@@ -124,12 +127,9 @@ async function selectEnglishRegion(page: Page): Promise<boolean> {
 async function dismissPopups(page: Page): Promise<void> {
   console.log('  Checking for popups to dismiss...');
   
-  // First, try to select UK/US in any country selector
   const regionSelected = await selectEnglishRegion(page);
   
-  // Common popup dismiss button selectors
   const dismissSelectors = [
-    // Cookie consent - Accept/OK buttons
     'button:has-text("Accept")',
     'button:has-text("Accept All")',
     'button:has-text("Accept Cookies")',
@@ -155,14 +155,10 @@ async function dismissPopups(page: Page): Promise<void> {
     '.cc-btn.cc-allow',
     '[aria-label="Accept cookies"]',
     '[aria-label="accept cookies"]',
-    
-    // Geo/Country selector - Confirm after selecting UK (or dismiss if no selection made)
     'button:has-text("Shop Now")',
     'button:has-text("Stay")',
     'button:has-text("Confirm")',
     'button:has-text("Go to")',
-    
-    // Newsletter/Promo popups - Close buttons
     '[class*="newsletter"] button[aria-label*="close" i]',
     '[class*="popup"] button[aria-label*="close" i]',
     '[class*="modal"] button[aria-label*="close" i]',
@@ -176,16 +172,12 @@ async function dismissPopups(page: Page): Promise<void> {
     '.popup-close',
     '.close-button',
     '.btn-close',
-    
-    // Generic close buttons (X icons)
     '[class*="close"]:not([class*="closed"]) svg',
     '[class*="dismiss"] svg',
     'button:has(svg[class*="close"])',
     '[role="dialog"] button:has-text("×")',
     '[role="dialog"] button:has-text("✕")',
     '[role="dialog"] button:has-text("X")',
-    
-    // Specific vendor modals
     '.klaviyo-close-form',
     '[data-testid="modal-close"]',
     '[data-testid="close-modal"]',
@@ -203,30 +195,28 @@ async function dismissPopups(page: Page): Promise<void> {
         await element.click({ timeout: TIMEOUTS.popupDismiss, force: true });
         dismissed++;
         console.log(`    ✓ Dismissed popup with: "${selector.substring(0, 50)}..."`);
-        await sleep(500); // Wait for popup animation
+        await sleep(500);
       }
     } catch (e) {
-      // Continue to next selector - element not found or not clickable
+      // Continue
     }
   }
   
-  // Also try pressing Escape key to close any remaining modals
   try {
     await page.keyboard.press('Escape');
     await sleep(300);
   } catch (e) {
-    // Ignore escape key errors
+    // Ignore
   }
   
-  // Click outside modals (on body/backdrop) to close them
   try {
     const backdrop = page.locator('[class*="backdrop"], [class*="overlay"]:not([class*="video"])').first();
     if (await backdrop.isVisible({ timeout: 500 })) {
-      await page.mouse.click(10, 10); // Click top-left corner
+      await page.mouse.click(10, 10);
       await sleep(300);
     }
   } catch (e) {
-    // Ignore backdrop click errors
+    // Ignore
   }
   
   if (dismissed > 0 || regionSelected) {
@@ -237,26 +227,40 @@ async function dismissPopups(page: Page): Promise<void> {
 }
 
 /**
- * Initialize browser if not already initialized
+ * Create a Browserbase session and connect Playwright
  */
-async function getBrowser(): Promise<Browser> {
-  if (!globalBrowser) {
-    globalBrowser = await chromium.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
-    });
+async function createBrowserbaseSession(): Promise<{ browser: Browser; sessionId: string }> {
+  const client = getBrowserbaseClient();
+  const projectId = process.env.BROWSERBASE_PROJECT_ID;
+  
+  if (!projectId) {
+    throw new Error('BROWSERBASE_PROJECT_ID environment variable is not set');
   }
-  return globalBrowser;
+  
+  console.log('  Creating Browserbase session...');
+  
+  // Create a new session
+  const session = await client.sessions.create({
+    projectId,
+    browserSettings: {
+      // Browserbase handles stealth automatically
+    },
+  });
+  
+  console.log(`  ✓ Session created: ${session.id}`);
+  
+  // Connect Playwright to the session
+  const browser = await chromium.connectOverCDP(session.connectUrl);
+  
+  return { browser, sessionId: session.id };
 }
 
 /**
- * Close browser
+ * Close browser (no-op for Browserbase, session auto-closes)
  */
 export async function closeBrowser(): Promise<void> {
-  if (globalBrowser) {
-    await globalBrowser.close();
-    globalBrowser = null;
-  }
+  // Browserbase sessions auto-close when disconnected
+  // No global browser to manage anymore
 }
 
 /**
@@ -270,20 +274,16 @@ function getEnglishUrl(url: string): string[] {
     const hostname = urlObj.hostname;
     const pathname = urlObj.pathname;
     
-    // Add URL variants that might force English
-    // 1. Add ?country=GB or &country=GB
     const separator = url.includes('?') ? '&' : '?';
     urls.push(`${url}${separator}country=GB`);
     urls.push(`${url}${separator}country=UK`);
     urls.push(`${url}${separator}locale=en-GB`);
     
-    // 2. Try /en-gb/ path variant
     if (!pathname.includes('/en-gb') && !pathname.includes('/en-us') && !pathname.includes('/en/')) {
       urls.push(`${urlObj.origin}/en-gb${pathname}`);
       urls.push(`${urlObj.origin}/en${pathname}`);
     }
     
-    // 3. For regional subdomains, try main domain
     if (hostname.match(/^(be|nl|de|fr|es|it)\./)) {
       const mainDomain = hostname.replace(/^(be|nl|de|fr|es|it)\./, '');
       urls.push(`https://${mainDomain}${pathname}`);
@@ -291,7 +291,7 @@ function getEnglishUrl(url: string): string[] {
     }
     
   } catch (e) {
-    // If URL parsing fails, just return original
+    // Return original
   }
   
   return urls;
@@ -301,7 +301,6 @@ function getEnglishUrl(url: string): string[] {
  * Safe page navigation with fallback strategies
  */
 async function safeGoto(page: Page, url: string): Promise<boolean> {
-  // Get potential English URL variants
   const urlsToTry = getEnglishUrl(url);
   
   for (const tryUrl of urlsToTry) {
@@ -310,7 +309,6 @@ async function safeGoto(page: Page, url: string): Promise<boolean> {
       await page.goto(tryUrl, { waitUntil: 'networkidle', timeout: TIMEOUTS.navigation });
       await sleep(2000);
       
-      // Check if we landed on an English page (basic check)
       const pageUrl = page.url();
       const pageContent = await page.content();
       const isEnglish = pageUrl.includes('/en') || 
@@ -325,11 +323,10 @@ async function safeGoto(page: Page, url: string): Promise<boolean> {
       }
       console.log(`  Page not in English, trying next variant...`);
     } catch (error) {
-      // Try next URL variant
+      // Try next
     }
   }
   
-  // Fallback: just try the original URL with less strict loading
   try {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: TIMEOUTS.fallbackNav });
     await sleep(2000);
@@ -353,7 +350,6 @@ async function safeGoto(page: Page, url: string): Promise<boolean> {
  */
 async function findAndClickSearchIcon(page: Page): Promise<boolean> {
   const searchSelectors = [
-    // Common search icon selectors
     'button[aria-label*="search" i]',
     'button[aria-label*="Search" i]',
     'a[aria-label*="search" i]',
@@ -363,7 +359,6 @@ async function findAndClickSearchIcon(page: Page): Promise<boolean> {
     '[class*="search"][class*="icon"]',
     '[class*="search"][class*="button"]',
     'input[type="search"]',
-    // Generic patterns
     'button:has-text("Search")',
     'a:has-text("Search")',
     '[role="button"]:has-text("Search")',
@@ -376,16 +371,15 @@ async function findAndClickSearchIcon(page: Page): Promise<boolean> {
       
       if (isVisible) {
         await element.click({ timeout: TIMEOUTS.elementShort });
-        await sleep(1000); // Wait for modal to open
+        await sleep(1000);
         console.log(`  ✓ Found search icon with selector: "${selector}"`);
         return true;
       }
     } catch (e) {
-      // Continue to next selector
+      // Continue
     }
   }
 
-  // Fallback: Try to find any element with "search" in class/id/aria-label
   try {
     const elements = await page.$$eval('button, a, [role="button"], input', (els) => {
       return els
@@ -446,7 +440,7 @@ async function findSearchInput(page: Page): Promise<boolean> {
         return true;
       }
     } catch (e) {
-      // Continue to next selector
+      // Continue
     }
   }
 
@@ -461,9 +455,8 @@ async function scrollToLoadContent(page: Page, scrollCount: number = 3): Promise
     await page.evaluate(() => {
       window.scrollBy(0, window.innerHeight * 0.8);
     });
-    await sleep(800); // Wait for content to load
+    await sleep(800);
   }
-  // Scroll back to top for the screenshot
   await page.evaluate(() => window.scrollTo(0, 0));
   await sleep(300);
 }
@@ -472,22 +465,19 @@ async function scrollToLoadContent(page: Page, scrollCount: number = 3): Promise
  * Submit search (try Enter key, then button click, then URL-based)
  */
 async function submitSearch(page: Page, query: string, domain: string): Promise<boolean> {
-  // Strategy 1: Press Enter key
   try {
     const urlBefore = page.url();
     await page.keyboard.press('Enter');
-    await sleep(3000); // Wait for navigation
+    await sleep(3000);
     const urlAfter = page.url();
-    // Check if URL changed (search was submitted)
     if (urlAfter !== urlBefore) {
       console.log('  ✓ Search submitted via Enter key');
       return true;
     }
   } catch (e) {
-    // Continue to next strategy
+    // Continue
   }
 
-  // Strategy 2: Click submit button
   const submitSelectors = [
     'button[type="submit"]',
     'button[aria-label*="search" i]',
@@ -508,11 +498,10 @@ async function submitSearch(page: Page, query: string, domain: string): Promise<
         return true;
       }
     } catch (e) {
-      // Continue to next selector
+      // Continue
     }
   }
 
-  // Strategy 3: URL-based navigation
   try {
     const searchUrl = `${domain}/search?q=${encodeURIComponent(query)}`;
     await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: TIMEOUTS.fallbackNav });
@@ -526,36 +515,47 @@ async function submitSearch(page: Page, query: string, domain: string): Promise<
 }
 
 /**
- * Run search journey and capture screenshots
+ * Run search journey and capture screenshots using Browserbase
  */
 export async function runSearchJourney(
   jobId: string,
   domain: string,
   query: string
 ): Promise<SearchResult> {
-  const browser = await getBrowser();
-  
-  // Create page with English locale settings
-  const context = await browser.newContext({
-    locale: 'en-US',
-    timezoneId: 'America/New_York',
-    geolocation: { longitude: -73.935242, latitude: 40.730610 }, // New York
-    permissions: ['geolocation'],
-    extraHTTPHeaders: {
-      'Accept-Language': 'en-US,en;q=0.9',
-    },
-  });
-  const page = await context.newPage();
-  
-  // Set larger viewport for better screenshots
-  await page.setViewportSize({ width: 1280, height: 1024 });
+  let browser: Browser | null = null;
+  let context: BrowserContext | null = null;
+  let sessionId: string | null = null;
   
   const domainName = getDomainName(domain);
   const normalizedDomain = normalizeDomain(domain);
   const screenshots: SearchResult['screenshots'] = [];
 
   try {
+    updateJobProgress(jobId, 5, 'running');
+    
+    // Create Browserbase session
+    const session = await createBrowserbaseSession();
+    browser = session.browser;
+    sessionId = session.sessionId;
+    
     updateJobProgress(jobId, 10, 'running');
+    
+    // Get the default context (Browserbase provides one)
+    const contexts = browser.contexts();
+    context = contexts[0] || await browser.newContext({
+      locale: 'en-US',
+      timezoneId: 'America/New_York',
+      geolocation: { longitude: -73.935242, latitude: 40.730610 },
+      permissions: ['geolocation'],
+      extraHTTPHeaders: {
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
+    });
+    
+    const page = context.pages()[0] || await context.newPage();
+    
+    // Set larger viewport
+    await page.setViewportSize({ width: 1280, height: 1024 });
 
     // Step 1: Navigate to homepage
     console.log(`[${jobId}] Navigating to homepage: ${normalizedDomain}`);
@@ -565,11 +565,8 @@ export async function runSearchJourney(
       throw new Error('Failed to load homepage');
     }
 
-    // Dismiss any popups (cookies, geo selectors, newsletters)
     await dismissPopups(page);
     await sleep(500);
-    
-    // Try dismissing again after a short wait (some popups load delayed)
     await dismissPopups(page);
 
     // Screenshot homepage
@@ -619,32 +616,25 @@ export async function runSearchJourney(
     // Type query
     await page.keyboard.type(query, { delay: 100 });
     
-    // Wait for autocomplete/search suggestions to load
     console.log(`  Waiting for search suggestions to load...`);
-    await sleep(2500); // Give time for autocomplete API to respond
+    await sleep(2500);
     
-    // Try to wait for search suggestion elements to appear
     try {
       await page.waitForSelector('[class*="suggest"], [class*="autocomplete"], [class*="dropdown"], [class*="results"], [class*="product"]', { 
         timeout: 3000,
         state: 'visible' 
       });
       console.log(`  ✓ Search suggestions appeared`);
-      await sleep(500); // Extra moment for images to load
+      await sleep(500);
     } catch (e) {
       console.log(`  ⚠ No autocomplete detected, continuing...`);
     }
 
-    // Screenshot search modal with query - use taller viewport to capture suggestions
+    // Screenshot search modal
     const searchModalPath = getArtifactPath(jobId, domainName, 'search_modal');
-    
-    // Temporarily increase viewport height to capture autocomplete dropdown
     await page.setViewportSize({ width: 1280, height: 1200 });
     await sleep(300);
-    
     await page.screenshot({ path: searchModalPath, quality: 80, fullPage: false });
-    
-    // Reset viewport
     await page.setViewportSize({ width: 1280, height: 1024 });
     
     const searchModalScreenshot: SearchResult['screenshots'][0] = {
@@ -673,31 +663,21 @@ export async function runSearchJourney(
       };
     }
 
-    // Wait for results page to load
     await sleep(2000);
-    
-    // Dismiss any popups on results page
     await dismissPopups(page);
 
-    // Scroll down to load more products and capture full results
+    // Scroll to load more results
     console.log(`  Scrolling to load more results...`);
-    await scrollToLoadContent(page, 3); // Scroll 3 times to load lazy content
+    await scrollToLoadContent(page, 3);
     await sleep(1000);
 
-    // Screenshot search results - capture full page (capped at reasonable height)
+    // Screenshot search results
     const searchResultsPath = getArtifactPath(jobId, domainName, 'search_results');
-    
-    // Get page height, cap at 3000px to avoid infinite scroll issues
     const pageHeight = await page.evaluate(() => Math.min(document.body.scrollHeight, 3000));
-    
-    // Temporarily resize viewport for taller screenshot
     await page.setViewportSize({ width: 1280, height: pageHeight });
-    await page.evaluate(() => window.scrollTo(0, 0)); // Scroll back to top
+    await page.evaluate(() => window.scrollTo(0, 0));
     await sleep(500);
-    
     await page.screenshot({ path: searchResultsPath, quality: 80, fullPage: false });
-    
-    // Reset viewport
     await page.setViewportSize({ width: 1280, height: 1024 });
     
     const searchResultsScreenshot: SearchResult['screenshots'][0] = {
@@ -711,7 +691,6 @@ export async function runSearchJourney(
 
     updateJobProgress(jobId, 100, 'completed');
 
-    // Return success result
     const result: SearchResult = {
       jobId,
       status: 'completed',
@@ -735,8 +714,16 @@ export async function runSearchJourney(
       error: errorMessage,
     };
   } finally {
-    await page.close();
-    await context.close();
+    // Close browser connection (session auto-closes on Browserbase)
+    if (browser) {
+      try {
+        await browser.close();
+      } catch (e) {
+        // Ignore close errors
+      }
+    }
+    if (sessionId) {
+      console.log(`  Session ${sessionId} completed`);
+    }
   }
 }
-

@@ -8,11 +8,11 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "clean": "rm -rf dist artifacts",
-    "postinstall": "npx playwright install --with-deps chromium"
+    "clean": "rm -rf dist artifacts"
   },
   "keywords": [
     "playwright",
+    "browserbase",
     "screenshot",
     "website",
     "search",
@@ -21,13 +21,12 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@browserbasehq/sdk": "^2.6.0",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
-    "openai": "^6.16.0",
+    "openai": "^4.0.0",
     "playwright": "^1.40.0",
-    "playwright-extra": "^4.3.6",
-    "puppeteer-extra-plugin-stealth": "^2.11.2",
     "uuid": "^9.0.1"
   },
   "devDependencies": {
