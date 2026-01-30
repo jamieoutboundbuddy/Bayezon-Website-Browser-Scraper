@@ -29,200 +29,58 @@ function getBrowserbaseClient(): Browserbase {
 }
 
 const TIMEOUTS = {
-  navigation: 30000,
-  fallbackNav: 20000,
-  element: 5000,
-  elementShort: 2000,
-  popupDismiss: 1500,
+  navigation: 15000,   // Reduced from 30s
+  fallbackNav: 10000,  // Reduced from 20s
+  element: 3000,       // Reduced from 5s
+  elementShort: 1500,  // Reduced from 2s
+  popupDismiss: 1000,  // Reduced from 1.5s
 };
 
 /**
- * Try to select UK/US in country/region selector popups
- */
-async function selectEnglishRegion(page: Page): Promise<boolean> {
-  console.log('  Checking for country/region selector...');
-  
-  const countryDropdownSelectors = [
-    'select[name*="country" i]',
-    'select[id*="country" i]',
-    'select[class*="country" i]',
-    '[data-testid*="country"] select',
-    '[class*="locale"] select',
-    '[class*="region"] select',
-  ];
-  
-  for (const selector of countryDropdownSelectors) {
-    try {
-      const dropdown = page.locator(selector).first();
-      if (await dropdown.isVisible({ timeout: TIMEOUTS.popupDismiss })) {
-        try {
-          await dropdown.selectOption({ label: 'United Kingdom' });
-          console.log('    ✓ Selected United Kingdom from dropdown');
-          await sleep(500);
-          return true;
-        } catch {
-          try {
-            await dropdown.selectOption({ value: 'GB' });
-            console.log('    ✓ Selected GB from dropdown');
-            await sleep(500);
-            return true;
-          } catch {
-            try {
-              await dropdown.selectOption({ label: 'United States' });
-              console.log('    ✓ Selected United States from dropdown');
-              await sleep(500);
-              return true;
-            } catch {
-              // Continue
-            }
-          }
-        }
-      }
-    } catch (e) {
-      // Continue
-    }
-  }
-  
-  const countryLinkSelectors = [
-    'a:has-text("United Kingdom")',
-    'a:has-text("UK")',
-    'button:has-text("United Kingdom")',
-    'button:has-text("UK")',
-    '[data-country="GB"]',
-    '[data-country="UK"]',
-    '[data-locale="en-GB"]',
-    '[data-locale="en_GB"]',
-    'a[href*="/en-gb"]',
-    'a[href*="/en_gb"]',
-    'a[href*="country=GB"]',
-    'a[href*="country=UK"]',
-    'a:has-text("United States")',
-    'button:has-text("United States")',
-    '[data-country="US"]',
-    '[data-locale="en-US"]',
-    'a[href*="/en-us"]',
-    'a[href*="country=US"]',
-  ];
-  
-  for (const selector of countryLinkSelectors) {
-    try {
-      const link = page.locator(selector).first();
-      if (await link.isVisible({ timeout: TIMEOUTS.popupDismiss })) {
-        await link.click({ timeout: TIMEOUTS.popupDismiss });
-        console.log(`    ✓ Clicked country link: "${selector.substring(0, 40)}..."`);
-        await sleep(1000);
-        return true;
-      }
-    } catch (e) {
-      // Continue
-    }
-  }
-  
-  return false;
-}
-
-/**
- * Dismiss common popups: cookie consent, geo selectors, newsletters, modals
+ * Fast popup dismissal - just the most common ones
  */
 async function dismissPopups(page: Page): Promise<void> {
-  console.log('  Checking for popups to dismiss...');
-  
-  const regionSelected = await selectEnglishRegion(page);
-  
+  // Only the most common/effective selectors - speed over completeness
   const dismissSelectors = [
     'button:has-text("Accept")',
     'button:has-text("Accept All")',
-    'button:has-text("Accept Cookies")',
-    'button:has-text("Allow")',
-    'button:has-text("Allow All")',
-    'button:has-text("Got it")',
-    'button:has-text("I Agree")',
-    'button:has-text("Agree")',
-    'button:has-text("OK")',
-    'button:has-text("Continue")',
-    'button:has-text("Yes")',
-    '[id*="cookie"] button:has-text("Accept")',
-    '[class*="cookie"] button:has-text("Accept")',
-    '[id*="consent"] button:has-text("Accept")',
-    '[class*="consent"] button:has-text("Accept")',
-    '[data-testid*="cookie-accept"]',
-    '[data-testid*="accept-cookies"]',
     '#onetrust-accept-btn-handler',
-    '.onetrust-close-btn-handler',
     '#CybotCookiebotDialogBodyButtonAccept',
-    '#CybotCookiebotDialogBodyLevelButtonAccept',
     '.cc-accept',
-    '.cc-btn.cc-allow',
-    '[aria-label="Accept cookies"]',
-    '[aria-label="accept cookies"]',
-    'button:has-text("Shop Now")',
-    'button:has-text("Stay")',
-    'button:has-text("Confirm")',
-    'button:has-text("Go to")',
-    '[class*="newsletter"] button[aria-label*="close" i]',
-    '[class*="popup"] button[aria-label*="close" i]',
-    '[class*="modal"] button[aria-label*="close" i]',
-    '[class*="overlay"] button[aria-label*="close" i]',
     'button[aria-label="Close"]',
     'button[aria-label="close"]',
-    'button[aria-label="Close dialog"]',
-    'button[aria-label="Dismiss"]',
     '[data-dismiss="modal"]',
     '.modal-close',
-    '.popup-close',
-    '.close-button',
-    '.btn-close',
-    '[class*="close"]:not([class*="closed"]) svg',
-    '[class*="dismiss"] svg',
-    'button:has(svg[class*="close"])',
-    '[role="dialog"] button:has-text("×")',
-    '[role="dialog"] button:has-text("✕")',
-    '[role="dialog"] button:has-text("X")',
-    '.klaviyo-close-form',
-    '[data-testid="modal-close"]',
-    '[data-testid="close-modal"]',
-    '#attentive_overlay button.attentive_close',
   ];
   
   let dismissed = 0;
   
+  // Try each selector but don't wait long - max 500ms per
   for (const selector of dismissSelectors) {
+    if (dismissed >= 2) break; // Stop after 2 dismissals - enough
     try {
       const element = page.locator(selector).first();
-      const isVisible = await element.isVisible({ timeout: TIMEOUTS.popupDismiss });
+      const isVisible = await element.isVisible({ timeout: 500 });
       
       if (isVisible) {
-        await element.click({ timeout: TIMEOUTS.popupDismiss, force: true });
+        await element.click({ timeout: 500, force: true });
         dismissed++;
-        console.log(`    ✓ Dismissed popup with: "${selector.substring(0, 50)}..."`);
-        await sleep(500);
+        await sleep(200);
       }
     } catch (e) {
       // Continue
     }
   }
   
+  // Quick Escape press to close any remaining modals
   try {
     await page.keyboard.press('Escape');
-    await sleep(300);
   } catch (e) {
     // Ignore
   }
   
-  try {
-    const backdrop = page.locator('[class*="backdrop"], [class*="overlay"]:not([class*="video"])').first();
-    if (await backdrop.isVisible({ timeout: 500 })) {
-      await page.mouse.click(10, 10);
-      await sleep(300);
-    }
-  } catch (e) {
-    // Ignore
-  }
-  
-  if (dismissed > 0 || regionSelected) {
-    console.log(`    ✓ Handled ${dismissed} popup(s)${regionSelected ? ' + selected UK/US region' : ''}`);
-  } else {
-    console.log('    No popups detected');
+  if (dismissed > 0) {
+    console.log(`    ✓ Dismissed ${dismissed} popup(s)`);
   }
 }
 
@@ -239,12 +97,14 @@ async function createBrowserbaseSession(): Promise<{ browser: Browser; sessionId
   
   console.log('  Creating Browserbase session...');
   
-  // Create a new session
+  // Create a new session with longer timeout (5 minutes)
   const session = await client.sessions.create({
     projectId,
     browserSettings: {
       // Browserbase handles stealth automatically
     },
+    timeout: 300, // 5 minutes
+    keepAlive: true,
   });
   
   console.log(`  ✓ Session created: ${session.id}`);
@@ -264,83 +124,26 @@ export async function closeBrowser(): Promise<void> {
 }
 
 /**
- * Try to force English/UK version of URL
- */
-function getEnglishUrl(url: string): string[] {
-  const urls = [url];
-  
-  try {
-    const urlObj = new URL(url);
-    const hostname = urlObj.hostname;
-    const pathname = urlObj.pathname;
-    
-    const separator = url.includes('?') ? '&' : '?';
-    urls.push(`${url}${separator}country=GB`);
-    urls.push(`${url}${separator}country=UK`);
-    urls.push(`${url}${separator}locale=en-GB`);
-    
-    if (!pathname.includes('/en-gb') && !pathname.includes('/en-us') && !pathname.includes('/en/')) {
-      urls.push(`${urlObj.origin}/en-gb${pathname}`);
-      urls.push(`${urlObj.origin}/en${pathname}`);
-    }
-    
-    if (hostname.match(/^(be|nl|de|fr|es|it)\./)) {
-      const mainDomain = hostname.replace(/^(be|nl|de|fr|es|it)\./, '');
-      urls.push(`https://${mainDomain}${pathname}`);
-      urls.push(`https://uk.${mainDomain}${pathname}`);
-    }
-    
-  } catch (e) {
-    // Return original
-  }
-  
-  return urls;
-}
-
-/**
- * Safe page navigation with fallback strategies
+ * Fast page navigation - just go to the URL directly
+ * No more trying multiple language variants (wastes 3+ minutes)
  */
 async function safeGoto(page: Page, url: string): Promise<boolean> {
-  const urlsToTry = getEnglishUrl(url);
-  
-  for (const tryUrl of urlsToTry) {
-    try {
-      console.log(`  Trying: ${tryUrl}`);
-      await page.goto(tryUrl, { waitUntil: 'networkidle', timeout: TIMEOUTS.navigation });
-      await sleep(2000);
-      
-      const pageUrl = page.url();
-      const pageContent = await page.content();
-      const isEnglish = pageUrl.includes('/en') || 
-                        pageUrl.includes('country=GB') || 
-                        pageUrl.includes('country=UK') ||
-                        pageUrl.includes('country=US') ||
-                        pageContent.includes('lang="en"') ||
-                        pageContent.includes("lang='en'");
-      
-      if (isEnglish || tryUrl === url) {
-        return true;
-      }
-      console.log(`  Page not in English, trying next variant...`);
-    } catch (error) {
-      // Try next
-    }
-  }
-  
   try {
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: TIMEOUTS.fallbackNav });
-    await sleep(2000);
+    // Use domcontentloaded for speed - don't wait for all resources
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: TIMEOUTS.navigation });
+    // Short wait for JS to initialize
+    await sleep(1000);
     return true;
   } catch (error) {
-    console.log(`DOM content loaded failed for ${url}, trying load...`);
+    console.log(`  Navigation failed for ${url}, retrying with load...`);
   }
   
   try {
     await page.goto(url, { waitUntil: 'load', timeout: TIMEOUTS.fallbackNav });
-    await sleep(1000);
+    await sleep(500);
     return true;
   } catch (error) {
-    console.log(`All navigation strategies failed for ${url}`);
+    console.log(`  All navigation failed for ${url}`);
     return false;
   }
 }
@@ -448,114 +251,56 @@ async function findSearchInput(page: Page): Promise<boolean> {
 }
 
 /**
- * Open and screenshot navigation menu to show catalog categories
- * This helps the AI understand what products SHOULD exist for recall analysis
+ * Quick hover on main nav to show categories (for recall analysis)
  */
 async function captureNavigationMenu(page: Page): Promise<boolean> {
-  console.log('  Attempting to capture navigation/catalog menu...');
-  
-  // Try to find and open a navigation menu
-  const navTriggerSelectors = [
-    // Hamburger menus
-    'button[aria-label*="menu" i]',
-    'button[aria-label*="Menu" i]',
-    '[class*="hamburger"]',
-    '[class*="menu-toggle"]',
-    '[class*="nav-toggle"]',
-    'button:has([class*="hamburger"])',
-    // Main nav items that might expand
+  // Quick nav hover - just try main menu items
+  const navSelectors = [
     'nav a:has-text("Shop")',
-    'nav a:has-text("Products")',
-    'nav a:has-text("Collections")',
-    'nav a:has-text("Categories")',
-    'nav button:has-text("Shop")',
-    'header a:has-text("Shop")',
-    'header a:has-text("Men")',
-    'header a:has-text("Women")',
-    // Generic nav elements
+    'header a:has-text("Shop")', 
     'nav > ul > li:first-child > a',
-    'header nav a:first-of-type',
+    'button[aria-label*="menu" i]',
   ];
   
-  for (const selector of navTriggerSelectors) {
+  for (const selector of navSelectors) {
     try {
       const element = page.locator(selector).first();
-      const isVisible = await element.isVisible({ timeout: TIMEOUTS.elementShort });
-      
-      if (isVisible) {
-        // Hover first (for dropdowns)
-        await element.hover({ timeout: TIMEOUTS.elementShort });
-        await sleep(800);
-        
-        // Check if a dropdown appeared
-        const dropdownSelectors = [
-          '[class*="dropdown"]',
-          '[class*="megamenu"]',
-          '[class*="submenu"]',
-          '[class*="nav-panel"]',
-          'nav ul ul',
-          '[role="menu"]',
-        ];
-        
-        for (const dropdownSel of dropdownSelectors) {
-          try {
-            const dropdown = page.locator(dropdownSel).first();
-            if (await dropdown.isVisible({ timeout: 500 })) {
-              console.log(`    ✓ Nav dropdown appeared via hover: "${selector.substring(0, 40)}..."`);
-              return true;
-            }
-          } catch (e) {
-            // Continue
-          }
-        }
-        
-        // Try clicking if hover didn't work
-        await element.click({ timeout: TIMEOUTS.elementShort });
-        await sleep(800);
-        
-        for (const dropdownSel of dropdownSelectors) {
-          try {
-            const dropdown = page.locator(dropdownSel).first();
-            if (await dropdown.isVisible({ timeout: 500 })) {
-              console.log(`    ✓ Nav menu opened via click: "${selector.substring(0, 40)}..."`);
-              return true;
-            }
-          } catch (e) {
-            // Continue
-          }
+      if (await element.isVisible({ timeout: 500 })) {
+        await element.hover({ timeout: 500 });
+        await sleep(400);
+        // Check if dropdown appeared
+        const dropdown = page.locator('[class*="dropdown"], [class*="megamenu"], [role="menu"]').first();
+        if (await dropdown.isVisible({ timeout: 300 })) {
+          console.log('    ✓ Nav dropdown captured');
+          return true;
         }
       }
     } catch (e) {
-      // Continue to next selector
+      // Continue
     }
   }
-  
-  console.log('    ⚠ Could not open navigation menu, using homepage as catalog reference');
   return false;
 }
 
 /**
- * Scroll down to load lazy-loaded content
+ * Fast scroll to load lazy content - 2 quick scrolls
  */
-async function scrollToLoadContent(page: Page, scrollCount: number = 3): Promise<void> {
-  for (let i = 0; i < scrollCount; i++) {
-    await page.evaluate(() => {
-      window.scrollBy(0, window.innerHeight * 0.8);
-    });
-    await sleep(800);
+async function scrollToLoadContent(page: Page): Promise<void> {
+  for (let i = 0; i < 2; i++) {
+    await page.evaluate(() => window.scrollBy(0, window.innerHeight));
+    await sleep(400);
   }
   await page.evaluate(() => window.scrollTo(0, 0));
-  await sleep(300);
 }
 
 /**
- * Submit search (try Enter key, then button click, then URL-based)
+ * Submit search - try Enter, then button, then direct URL
  */
 async function submitSearch(page: Page, query: string, domain: string): Promise<boolean> {
   try {
     const urlBefore = page.url();
     await page.keyboard.press('Enter');
-    await sleep(3000);
+    await sleep(1500); // Reduced from 3s
     const urlAfter = page.url();
     if (urlAfter !== urlBefore) {
       console.log('  ✓ Search submitted via Enter key');
@@ -565,38 +310,27 @@ async function submitSearch(page: Page, query: string, domain: string): Promise<
     // Continue
   }
 
-  const submitSelectors = [
-    'button[type="submit"]',
-    'button[aria-label*="search" i]',
-    'button:has-text("Search")',
-    'input[type="submit"]',
-    '[role="button"]:has-text("Search")',
-  ];
-
-  for (const selector of submitSelectors) {
-    try {
-      const button = page.locator(selector).first();
-      const isVisible = await button.isVisible({ timeout: TIMEOUTS.elementShort });
-      
-      if (isVisible) {
-        await button.click({ timeout: TIMEOUTS.elementShort });
-        await sleep(2000);
-        console.log(`  ✓ Search submitted via button: "${selector}"`);
-        return true;
-      }
-    } catch (e) {
-      // Continue
+  // Try submit button
+  try {
+    const button = page.locator('button[type="submit"], button:has-text("Search")').first();
+    if (await button.isVisible({ timeout: 1000 })) {
+      await button.click({ timeout: 1000 });
+      await sleep(1000);
+      console.log('  ✓ Search submitted via button');
+      return true;
     }
+  } catch (e) {
+    // Continue
   }
 
+  // Fallback: direct URL navigation
   try {
     const searchUrl = `${domain}/search?q=${encodeURIComponent(query)}`;
     await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: TIMEOUTS.fallbackNav });
-    await sleep(2000);
-    console.log('  ✓ Search submitted via URL navigation');
+    console.log('  ✓ Search submitted via URL');
     return true;
   } catch (e) {
-    console.log('  ⚠ All search submission strategies failed');
+    console.log('  ⚠ Search submission failed');
     return false;
   }
 }
@@ -653,8 +387,6 @@ export async function runSearchJourney(
     }
 
     await dismissPopups(page);
-    await sleep(500);
-    await dismissPopups(page);
 
     // Screenshot homepage
     const homepagePath = getArtifactPath(jobId, domainName, 'homepage');
@@ -674,12 +406,11 @@ export async function runSearchJourney(
     console.log(`[${jobId}] Capturing navigation menu for catalog context...`);
     const navOpened = await captureNavigationMenu(page);
     
-    // Screenshot navigation/catalog (whether menu opened or not - shows nav bar at minimum)
+    // Screenshot navigation/catalog
     const navigationPath = getArtifactPath(jobId, domainName, 'navigation');
-    await page.setViewportSize({ width: 1280, height: 1200 }); // Taller to capture dropdown
-    await sleep(300);
-    await page.screenshot({ path: navigationPath, quality: 80, fullPage: false });
-    await page.setViewportSize({ width: 1280, height: 1024 }); // Reset
+    await page.setViewportSize({ width: 1280, height: 1200 });
+    await page.screenshot({ path: navigationPath, quality: 70, fullPage: false });
+    await page.setViewportSize({ width: 1280, height: 1024 });
     
     const navigationScreenshot: SearchResult['screenshots'][0] = {
       stage: 'navigation',
@@ -688,15 +419,10 @@ export async function runSearchJourney(
     };
     addScreenshotToJob(jobId, navigationScreenshot);
     screenshots.push(navigationScreenshot);
-    console.log(`  ✓ Navigation screenshot captured (menu opened: ${navOpened})`);
+    console.log(`  ✓ Navigation screenshot captured`);
     
-    // Close any open menu by pressing Escape or clicking elsewhere
-    try {
-      await page.keyboard.press('Escape');
-      await sleep(300);
-    } catch (e) {
-      // Ignore
-    }
+    // Close any open menu
+    try { await page.keyboard.press('Escape'); } catch (e) {}
 
     updateJobProgress(jobId, 33, 'running');
 
@@ -730,28 +456,25 @@ export async function runSearchJourney(
       };
     }
 
-    // Type query
-    await page.keyboard.type(query, { delay: 100 });
+    // Type query (faster typing)
+    await page.keyboard.type(query, { delay: 50 });
     
-    console.log(`  Waiting for search suggestions to load...`);
-    await sleep(2500);
-    
+    // Wait briefly for autocomplete
+    await sleep(1500);
     try {
-      await page.waitForSelector('[class*="suggest"], [class*="autocomplete"], [class*="dropdown"], [class*="results"], [class*="product"]', { 
-        timeout: 3000,
+      await page.waitForSelector('[class*="suggest"], [class*="autocomplete"], [class*="dropdown"]', { 
+        timeout: 1500,
         state: 'visible' 
       });
-      console.log(`  ✓ Search suggestions appeared`);
-      await sleep(500);
+      console.log(`  ✓ Autocomplete appeared`);
     } catch (e) {
-      console.log(`  ⚠ No autocomplete detected, continuing...`);
+      // No autocomplete, continue
     }
 
     // Screenshot search modal
     const searchModalPath = getArtifactPath(jobId, domainName, 'search_modal');
     await page.setViewportSize({ width: 1280, height: 1200 });
-    await sleep(300);
-    await page.screenshot({ path: searchModalPath, quality: 80, fullPage: false });
+    await page.screenshot({ path: searchModalPath, quality: 70, fullPage: false });
     await page.setViewportSize({ width: 1280, height: 1024 });
     
     const searchModalScreenshot: SearchResult['screenshots'][0] = {
@@ -780,21 +503,18 @@ export async function runSearchJourney(
       };
     }
 
-    await sleep(2000);
+    await sleep(1000);
     await dismissPopups(page);
 
-    // Scroll to load more results
-    console.log(`  Scrolling to load more results...`);
-    await scrollToLoadContent(page, 3);
-    await sleep(1000);
+    // Quick scroll to load results
+    await scrollToLoadContent(page);
 
     // Screenshot search results
     const searchResultsPath = getArtifactPath(jobId, domainName, 'search_results');
-    const pageHeight = await page.evaluate(() => Math.min(document.body.scrollHeight, 3000));
+    const pageHeight = await page.evaluate(() => Math.min(document.body.scrollHeight, 2500));
     await page.setViewportSize({ width: 1280, height: pageHeight });
     await page.evaluate(() => window.scrollTo(0, 0));
-    await sleep(500);
-    await page.screenshot({ path: searchResultsPath, quality: 80, fullPage: false });
+    await page.screenshot({ path: searchResultsPath, quality: 70, fullPage: false });
     await page.setViewportSize({ width: 1280, height: 1024 });
     
     const searchResultsScreenshot: SearchResult['screenshots'][0] = {
