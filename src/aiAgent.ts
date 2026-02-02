@@ -129,8 +129,9 @@ export async function aiAnalyzeSite(
     
     // Get the page from context and navigate
     const page = stagehand.context.pages()[0];
-    await page.goto(url, { waitUntil: 'networkidle' });
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    await page.goto(url, { waitUntil: 'domcontentloaded' });
+    // Wait for page to stabilize (don't use networkidle - many sites never become idle)
+    await new Promise(resolve => setTimeout(resolve, 4000));
     
     // Dismiss any popups
     await dismissPopups(stagehand, page);
@@ -209,8 +210,9 @@ export async function aiExecuteSearch(
     console.log(`  [AI] [${label.toUpperCase()}] Navigating to: ${url}`);
     
     const page = stagehand.context.pages()[0];
-    await page.goto(url, { waitUntil: 'networkidle' });
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    await page.goto(url, { waitUntil: 'domcontentloaded' });
+    // Wait for page to stabilize
+    await new Promise(resolve => setTimeout(resolve, 4000));
     
     // Dismiss popups first
     await dismissPopups(stagehand, page);
