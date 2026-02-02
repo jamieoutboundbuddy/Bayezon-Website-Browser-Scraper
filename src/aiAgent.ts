@@ -64,12 +64,11 @@ async function createStagehandSession(): Promise<Stagehand> {
 
   console.log('  [AI] Creating Stagehand session...');
   
+  // Stagehand v3 constructor
   const stagehand = new Stagehand({
     env: 'BROWSERBASE',
     apiKey,
     projectId,
-    enableCaching: false,
-    verbose: 1,
   });
 
   await stagehand.init();
@@ -92,8 +91,9 @@ export async function aiAnalyzeSite(
     const url = domain.startsWith('http') ? domain : `https://${domain}`;
     console.log(`  [AI] Navigating to: ${url}`);
     
-    // Navigate to homepage
-    await stagehand.goto(url);
+    // Get the page from context and navigate
+    const page = stagehand.context.pages()[0];
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await new Promise(resolve => setTimeout(resolve, 3000));
     
     // Dismiss any popups the AI way
@@ -107,11 +107,10 @@ export async function aiAnalyzeSite(
     
     // Screenshot homepage
     const homepageScreenshotPath = getArtifactPath(jobId, domain, 'homepage');
-    const page = stagehand.context.pages()[0];
     await page.screenshot({ path: homepageScreenshotPath, quality: 80, type: 'jpeg' });
     console.log(`  [AI] ✓ Homepage screenshot saved`);
     
-    // Use AI to analyze the site
+    // Use AI to analyze the site with structured extraction
     console.log(`  [AI] Analyzing site structure...`);
     
     const analysisSchema = z.object({
@@ -123,28 +122,31 @@ export async function aiAnalyzeSite(
       aiObservations: z.string().describe('Any other relevant observations'),
     });
     
-    const result = await stagehand.extract({
-      instruction: `Analyze this e-commerce website homepage and extract:
-        1. The company/brand name
-        2. What industry/category (fashion, electronics, home goods, etc.)
-        3. Whether there's a search function visible (look for search icons, search bars, or "Search" text)
-        4. What type of search it is: 
-           - 'visible_input' if there's a text input already visible
-           - 'icon_triggered' if there's a magnifying glass icon that needs to be clicked
-           - 'hamburger_menu' if search is likely in a hamburger/menu
-           - 'none' if no search is visible
-        5. List the main product categories visible in the navigation
-        6. Any other relevant observations about the site`,
-      schema: analysisSchema,
-    });
+    // Use the string-based extract with schema in options
+    const instruction = `Analyze this e-commerce website homepage and extract:
+      1. The company/brand name
+      2. What industry/category (fashion, electronics, home goods, etc.)
+      3. Whether there's a search function visible (look for search icons, search bars, or "Search" text)
+      4. What type of search it is: 
+         - 'visible_input' if there's a text input already visible
+         - 'icon_triggered' if there's a magnifying glass icon that needs to be clicked
+         - 'hamburger_menu' if search is likely in a hamburger/menu
+         - 'none' if no search is visible
+      5. List the main product categories visible in the navigation
+      6. Any other relevant observations about the site`;
+    
+    const result = await stagehand.extract(instruction, { schema: analysisSchema });
+    
+    // Handle both possible return formats
+    const data = 'extraction' in result ? JSON.parse(result.extraction) : result;
     
     const siteProfile: AISiteProfile = {
-      companyName: result.companyName || 'Unknown',
-      industry: result.industry || 'Unknown',
-      hasSearch: result.hasSearch ?? false,
-      searchType: result.searchType || 'none',
-      visibleCategories: result.visibleCategories || [],
-      aiObservations: result.aiObservations || '',
+      companyName: data.companyName || 'Unknown',
+      industry: data.industry || 'Unknown',
+      hasSearch: data.hasSearch ?? false,
+      searchType: data.searchType || 'none',
+      visibleCategories: data.visibleCategories || [],
+      aiObservations: data.aiObservations || '',
     };
     
     console.log(`  [AI] ✓ Site analyzed: ${siteProfile.companyName} (${siteProfile.industry})`);
@@ -180,7 +182,8 @@ export async function aiExecuteSearch(
     const url = domain.startsWith('http') ? domain : `https://${domain}`;
     console.log(`  [AI] [${label.toUpperCase()}] Navigating to: ${url}`);
     
-    await stagehand.goto(url);
+    const page = stagehand.context.pages()[0];
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await new Promise(resolve => setTimeout(resolve, 2000));
     
     // Dismiss popups
@@ -217,8 +220,6 @@ export async function aiExecuteSearch(
       // Step 4: Screenshot results
       const screenshotPath = getArtifactPath(jobId, domain, `results_${label}`);
       
-      const page = stagehand.context.pages()[0];
-      
       // Scroll to show products
       await page.evaluate(() => window.scrollTo(0, 200));
       await new Promise(resolve => setTimeout(resolve, 500));
@@ -234,24 +235,26 @@ export async function aiExecuteSearch(
         aiObservations: z.string().describe('Observations about the results'),
       });
       
-      const resultsAnalysis = await stagehand.extract({
-        instruction: `Analyze the search results on this page:
-          1. How many products are visible?
-          2. List the names of the first 5-10 products you can see
-          3. Does this look like a successful search results page or an error/empty page?
-          4. Any observations about result quality`,
-        schema: resultsSchema,
-      });
+      const resultsInstruction = `Analyze the search results on this page:
+        1. How many products are visible?
+        2. List the names of the first 5-10 products you can see
+        3. Does this look like a successful search results page or an error/empty page?
+        4. Any observations about result quality`;
+        
+      const resultsResult = await stagehand.extract(resultsInstruction, { schema: resultsSchema });
+      
+      // Handle both possible return formats
+      const resultsData = 'extraction' in resultsResult ? JSON.parse(resultsResult.extraction) : resultsResult;
       
       await stagehand.close();
       
       return {
         query,
         screenshotPath,
-        resultCount: resultsAnalysis.resultCount,
-        productsFound: resultsAnalysis.productsFound || [],
-        searchSuccess: resultsAnalysis.searchSuccess ?? false,
-        aiObservations: resultsAnalysis.aiObservations || '',
+        resultCount: resultsData.resultCount,
+        productsFound: resultsData.productsFound || [],
+        searchSuccess: resultsData.searchSuccess ?? false,
+        aiObservations: resultsData.aiObservations || '',
       };
       
     } catch (searchError: any) {
@@ -259,7 +262,6 @@ export async function aiExecuteSearch(
       
       // Take a screenshot of whatever state we're in
       const screenshotPath = getArtifactPath(jobId, domain, `results_${label}`);
-      const page = stagehand.context.pages()[0];
       await page.screenshot({ path: screenshotPath, quality: 80, type: 'jpeg' });
       
       await stagehand.close();
@@ -298,11 +300,11 @@ export async function aiRunDualSearch(
   const stagehand = await createStagehandSession();
   const url = domain.startsWith('http') ? domain : `https://${domain}`;
   
-  await stagehand.goto(url);
+  const page = stagehand.context.pages()[0];
+  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
   await new Promise(resolve => setTimeout(resolve, 2000));
   
   const homepageScreenshotPath = getArtifactPath(jobId, domain, 'homepage');
-  const page = stagehand.context.pages()[0];
   await page.screenshot({ path: homepageScreenshotPath, quality: 80, type: 'jpeg' });
   console.log(`[AI-DUAL] ✓ Homepage captured`);
   
