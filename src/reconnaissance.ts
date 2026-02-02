@@ -111,20 +111,23 @@ Return JSON only:
   const content = response.choices[0]?.message?.content || '{}';
   const durationMs = Date.now() - startTime;
   
-  // Log to database
+  // Log to database (optional - don't fail if DB not available)
   try {
-    await getDb().llmLog.create({
-      data: {
-        jobId,
-        domain,
-        phase: 'reconnaissance',
-        prompt,
-        response: content,
-        model: 'gpt-4o',
-        tokensUsed: response.usage?.total_tokens ?? null,
-        durationMs
-      }
-    });
+    const db = getDb();
+    if (db) {
+      await db.llmLog.create({
+        data: {
+          jobId,
+          domain,
+          phase: 'reconnaissance',
+          prompt,
+          response: content,
+          model: 'gpt-4o',
+          tokensUsed: response.usage?.total_tokens ?? null,
+          durationMs
+        }
+      });
+    }
   } catch (dbError) {
     console.error('[RECON] Failed to log to database:', dbError);
     // Continue even if logging fails

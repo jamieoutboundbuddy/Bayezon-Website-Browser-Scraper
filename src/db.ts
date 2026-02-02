@@ -1,10 +1,34 @@
 import { PrismaClient } from '@prisma/client';
 
 let prisma: PrismaClient | null = null;
+let dbInitFailed = false;
 
-export function getDb(): PrismaClient {
+/**
+ * Get the database client.
+ * Returns null if database is not configured or failed to initialize.
+ * This allows the app to run without a database (logging is optional).
+ */
+export function getDb(): PrismaClient | null {
+  // If we already know DB init failed, don't try again
+  if (dbInitFailed) {
+    return null;
+  }
+  
+  // Check if DATABASE_URL is configured
+  if (!process.env.DATABASE_URL) {
+    console.log('[DB] DATABASE_URL not set - running without database logging');
+    dbInitFailed = true;
+    return null;
+  }
+  
   if (!prisma) {
-    prisma = new PrismaClient();
+    try {
+      prisma = new PrismaClient();
+    } catch (error) {
+      console.error('[DB] Failed to initialize Prisma client:', error);
+      dbInitFailed = true;
+      return null;
+    }
   }
   return prisma;
 }
@@ -16,5 +40,4 @@ export async function disconnectDb(): Promise<void> {
     prisma = null;
   }
 }
-
 

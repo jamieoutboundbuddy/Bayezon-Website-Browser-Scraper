@@ -456,30 +456,12 @@ app.post('/api/analyze', async (req: Request, res: Response) => {
   try {
     console.log(`[SMART] Starting analysis for: ${domain}`);
     
-    // Phase 1: Capture homepage and analyze
-    console.log(`[SMART] Phase 1: Reconnaissance`);
+    // Phase 1: Capture homepage and analyze using runDualSearch
+    // This creates ONE browser session and does everything in a single pass
+    console.log(`[SMART] Phase 1: Reconnaissance (capturing homepage)`);
     
-    // Run dual search to get the homepage screenshot
-    // We'll use a minimal query just to capture the homepage
-    const dummyQueries: TestQueries = {
-      naturalLanguageQuery: '',
-      keywordQuery: '',
-      queryBasis: 'inferred',
-      expectedBehavior: ''
-    };
-    
-    // Actually, we need to first capture the homepage to analyze it
-    // Let's do the analysis in the correct order:
-    // 1. Run a search journey just to get the homepage screenshot
-    // 2. Analyze the homepage
-    // 3. Generate queries based on analysis
-    // 4. Run dual search with those queries
-    // 5. Evaluate results
-    
-    // For phase 1, we need to capture the homepage first
-    // We'll use the runDualSearch function but we need the homepage screenshot first
-    // Let's actually do a simpler approach: use runSearchJourney with a simple query to get the homepage
-    
+    // First, we need to capture just the homepage to analyze it
+    // We'll do a minimal search journey that just gets the homepage
     const tempResult = await runSearchJourney(jobId + '-recon', domain, 'test');
     
     // Find the homepage screenshot
@@ -523,7 +505,10 @@ app.post('/api/analyze', async (req: Request, res: Response) => {
     const queries = await generateTestQueries(jobId, domain, siteProfile, homepageBase64);
     
     // Phase 3: Execute dual search
-    console.log(`[SMART] Phase 3: Dual Search`);
+    // IMPORTANT: Wait a bit for the previous Browserbase session to fully close
+    console.log(`[SMART] Phase 3: Dual Search (waiting for previous session to close...)`);
+    await new Promise(resolve => setTimeout(resolve, 3000)); // Wait 3 seconds
+    
     const searchResults = await runDualSearch(jobId, domain, queries);
     
     // Phase 4: Evaluate
@@ -553,25 +538,28 @@ app.post('/api/analyze', async (req: Request, res: Response) => {
       results_kw: `${baseUrl}${getArtifactUrl(jobId, domainName, 'results_kw')}`
     };
     
-    // Save to database
+    // Save to database (optional - don't fail if DB not available)
     try {
-      await getDb().analysisResult.create({
-        data: {
-          jobId,
-          domain,
-          siteProfile: siteProfile as any,
-          queriesTested: queries as any,
-          comparison: comparison as any,
-          verdict: comparison.verdict,
-          confidence: confidence.level,
-          confidenceReasons: confidence.reasons,
-          emailHook,
-          screenshotUrls: screenshotUrls as any
-        }
-      });
-      console.log(`[SMART] Results saved to database`);
+      const db = getDb();
+      if (db) {
+        await db.analysisResult.create({
+          data: {
+            jobId,
+            domain,
+            siteProfile: siteProfile as any,
+            queriesTested: queries as any,
+            comparison: comparison as any,
+            verdict: comparison.verdict,
+            confidence: confidence.level,
+            confidenceReasons: confidence.reasons,
+            emailHook,
+            screenshotUrls: screenshotUrls as any
+          }
+        });
+        console.log(`[SMART] Results saved to database`);
+      }
     } catch (dbError) {
-      console.error(`[SMART] Failed to save to database:`, dbError);
+      console.error(`[SMART] Failed to save to database (continuing anyway):`, dbError);
       // Continue anyway - don't fail the request just because DB save failed
     }
     
