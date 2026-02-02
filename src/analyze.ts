@@ -517,7 +517,10 @@ EVALUATE based on these criteria:
 KEY INSIGHT: We're looking for sites where customers have to "point, click, browse, filter" 
 instead of just typing what they want. If "red sneakers" doesn't return red sneakers = OUTREACH.
 
-Return JSON only:
+IMPORTANT: You MUST respond with ONLY a JSON object, no other text. Do not apologize or explain - just output the JSON.
+
+If you cannot see the images clearly, still provide your best guess based on what you can see.
+
 {
   "nlResultCount": number or null,
   "nlRelevance": "all_relevant|mostly_relevant|mixed|irrelevant|none",
@@ -529,7 +532,9 @@ Return JSON only:
   "verdict": "OUTREACH|SKIP|REVIEW|INCONCLUSIVE",
   "verdictReason": "One sentence explanation",
   "emailHook": "If OUTREACH: personalized email opener. If not: null"
-}`;
+}
+
+Output the JSON now:`;
 
   const openai = getOpenAIClient();
   const response = await openai.chat.completions.create({
@@ -573,7 +578,44 @@ Return JSON only:
     // Continue even if logging fails
   }
 
-  const parsed = JSON.parse(cleanJsonResponse(content));
+  // Try to parse JSON, with fallback for when LLM doesn't return valid JSON
+  let parsed: any;
+  try {
+    const cleaned = cleanJsonResponse(content);
+    // Check if it looks like JSON before parsing
+    if (!cleaned.startsWith('{') && !cleaned.startsWith('[')) {
+      console.warn('[EVAL] LLM did not return JSON, using fallback. Response:', content.substring(0, 100));
+      parsed = {
+        nlResultCount: null,
+        nlRelevance: 'mixed',
+        nlProductsShown: [],
+        kwResultCount: null,
+        kwRelevance: 'mixed',
+        kwProductsShown: [],
+        missedProducts: [],
+        verdict: 'REVIEW',
+        verdictReason: 'Unable to analyze screenshots - manual review needed',
+        emailHook: null
+      };
+    } else {
+      parsed = JSON.parse(cleaned);
+    }
+  } catch (parseError: any) {
+    console.warn('[EVAL] Failed to parse LLM response as JSON:', parseError.message);
+    console.warn('[EVAL] Raw response:', content.substring(0, 200));
+    parsed = {
+      nlResultCount: null,
+      nlRelevance: 'mixed',
+      nlProductsShown: [],
+      kwResultCount: null,
+      kwRelevance: 'mixed',
+      kwProductsShown: [],
+      missedProducts: [],
+      verdict: 'REVIEW',
+      verdictReason: 'LLM response could not be parsed - manual review needed',
+      emailHook: null
+    };
+  }
   
   // Build the comparison analysis object
   const comparison: ComparisonAnalysis = {
