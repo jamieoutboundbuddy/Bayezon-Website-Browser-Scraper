@@ -86,8 +86,9 @@ async function dismissPopups(page: Page): Promise<void> {
 
 /**
  * Create a Browserbase session and connect Playwright
+ * Includes automatic retry with backoff for rate limit errors
  */
-async function createBrowserbaseSession(): Promise<{ browser: Browser; sessionId: string }> {
+async function createBrowserbaseSession(maxRetries: number = 3): Promise<{ browser: Browser; sessionId: string }> {
   const client = getBrowserbaseClient();
   const projectId = process.env.BROWSERBASE_PROJECT_ID;
   
@@ -95,24 +96,60 @@ async function createBrowserbaseSession(): Promise<{ browser: Browser; sessionId
     throw new Error('BROWSERBASE_PROJECT_ID environment variable is not set');
   }
   
-  console.log('  Creating Browserbase session...');
+  let lastError: Error | null = null;
   
-  // Create a new session with longer timeout (5 minutes)
-  const session = await client.sessions.create({
-    projectId,
-    browserSettings: {
-      // Browserbase handles stealth automatically
-    },
-    timeout: 300, // 5 minutes
-    keepAlive: true,
-  });
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      console.log(`  Creating Browserbase session... (attempt ${attempt}/${maxRetries})`);
+      
+      // Create a new session with longer timeout (5 minutes)
+      const session = await client.sessions.create({
+        projectId,
+        browserSettings: {
+          // Browserbase handles stealth automatically
+        },
+        timeout: 300, // 5 minutes
+        keepAlive: false, // Don't keep alive - let it close when done
+      });
+      
+      console.log(`  ✓ Session created: ${session.id}`);
+      
+      // Connect Playwright to the session
+      const browser = await chromium.connectOverCDP(session.connectUrl);
+      
+      return { browser, sessionId: session.id };
+    } catch (error: any) {
+      lastError = error;
+      
+      // Check if it's a rate limit error (429)
+      if (error?.status === 429 || error?.message?.includes('429') || error?.message?.includes('concurrent sessions')) {
+        // Extract reset time from error if available, default to 30 seconds
+        let waitTime = 30;
+        
+        // Try to extract ratelimit-reset from error
+        const resetMatch = error?.message?.match(/ratelimit-reset.*?(\d+)/i) || 
+                          error?.headers?.['ratelimit-reset'];
+        if (resetMatch) {
+          const resetValue = typeof resetMatch === 'string' ? parseInt(resetMatch) : parseInt(resetMatch[1]);
+          if (!isNaN(resetValue) && resetValue > 0) {
+            waitTime = Math.min(resetValue + 5, 120); // Add 5s buffer, max 2 minutes
+          }
+        }
+        
+        console.log(`  ⚠ Rate limited (concurrent session limit). Waiting ${waitTime}s before retry...`);
+        
+        if (attempt < maxRetries) {
+          await sleep(waitTime * 1000);
+          continue;
+        }
+      }
+      
+      // For other errors or final attempt, throw
+      throw error;
+    }
+  }
   
-  console.log(`  ✓ Session created: ${session.id}`);
-  
-  // Connect Playwright to the session
-  const browser = await chromium.connectOverCDP(session.connectUrl);
-  
-  return { browser, sessionId: session.id };
+  throw lastError || new Error('Failed to create Browserbase session after retries');
 }
 
 /**
