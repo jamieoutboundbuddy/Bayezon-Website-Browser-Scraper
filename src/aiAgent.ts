@@ -1,5 +1,5 @@
 /**
- * AI-Powered Browser Agent using Stagehand
+ * AI-Powered Browser Agent using Stagehand v3
  * 
  * This module replaces rigid CSS selectors with AI-driven browser control.
  * The agent uses vision + language models to understand pages and interact
@@ -10,7 +10,6 @@ import { Stagehand } from '@browserbasehq/stagehand';
 import { z } from 'zod';
 import * as fs from 'fs';
 import * as path from 'path';
-import { v4 as uuidv4 } from 'uuid';
 
 // Types
 export interface AISearchResult {
@@ -69,12 +68,8 @@ async function createStagehandSession(): Promise<Stagehand> {
     env: 'BROWSERBASE',
     apiKey,
     projectId,
-    modelName: 'gpt-4o', // Use GPT-4o for vision
-    modelClientOptions: {
-      apiKey: process.env.OPENAI_API_KEY,
-    },
     enableCaching: false,
-    verbose: 1, // Show what the AI is doing
+    verbose: 1,
   });
 
   await stagehand.init();
@@ -97,27 +92,38 @@ export async function aiAnalyzeSite(
     const url = domain.startsWith('http') ? domain : `https://${domain}`;
     console.log(`  [AI] Navigating to: ${url}`);
     
-    await stagehand.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await stagehand.page.waitForTimeout(3000); // Let page settle
+    // Navigate to homepage
+    await stagehand.goto(url);
+    await new Promise(resolve => setTimeout(resolve, 3000));
     
     // Dismiss any popups the AI way
     try {
-      await stagehand.act({ 
-        action: "If there's a cookie consent popup or newsletter modal, close it by clicking the X or 'Accept' button. If no popup is visible, do nothing.",
-      });
+      await stagehand.act(
+        "If there's a cookie consent popup or newsletter modal, close it by clicking the X or 'Accept' button. If no popup is visible, do nothing."
+      );
     } catch (e) {
       // No popup to close
     }
     
     // Screenshot homepage
     const homepageScreenshotPath = getArtifactPath(jobId, domain, 'homepage');
-    await stagehand.page.screenshot({ path: homepageScreenshotPath, quality: 80 });
+    const page = stagehand.context.pages()[0];
+    await page.screenshot({ path: homepageScreenshotPath, quality: 80, type: 'jpeg' });
     console.log(`  [AI] ✓ Homepage screenshot saved`);
     
     // Use AI to analyze the site
     console.log(`  [AI] Analyzing site structure...`);
     
-    const siteAnalysis = await stagehand.extract({
+    const analysisSchema = z.object({
+      companyName: z.string().describe('The company or brand name'),
+      industry: z.string().describe('The industry category like fashion, electronics, etc.'),
+      hasSearch: z.boolean().describe('Whether a search function is visible'),
+      searchType: z.enum(['visible_input', 'icon_triggered', 'hamburger_menu', 'none']),
+      visibleCategories: z.array(z.string()).describe('Main product categories visible'),
+      aiObservations: z.string().describe('Any other relevant observations'),
+    });
+    
+    const result = await stagehand.extract({
       instruction: `Analyze this e-commerce website homepage and extract:
         1. The company/brand name
         2. What industry/category (fashion, electronics, home goods, etc.)
@@ -129,24 +135,26 @@ export async function aiAnalyzeSite(
            - 'none' if no search is visible
         5. List the main product categories visible in the navigation
         6. Any other relevant observations about the site`,
-      schema: z.object({
-        companyName: z.string().describe('The company or brand name'),
-        industry: z.string().describe('The industry category like fashion, electronics, etc.'),
-        hasSearch: z.boolean().describe('Whether a search function is visible'),
-        searchType: z.enum(['visible_input', 'icon_triggered', 'hamburger_menu', 'none']),
-        visibleCategories: z.array(z.string()).describe('Main product categories visible'),
-        aiObservations: z.string().describe('Any other relevant observations'),
-      }),
+      schema: analysisSchema,
     });
     
-    console.log(`  [AI] ✓ Site analyzed: ${siteAnalysis.companyName} (${siteAnalysis.industry})`);
-    console.log(`  [AI]   Search: ${siteAnalysis.hasSearch ? siteAnalysis.searchType : 'none'}`);
-    console.log(`  [AI]   Categories: ${siteAnalysis.visibleCategories.join(', ')}`);
+    const siteProfile: AISiteProfile = {
+      companyName: result.companyName || 'Unknown',
+      industry: result.industry || 'Unknown',
+      hasSearch: result.hasSearch ?? false,
+      searchType: result.searchType || 'none',
+      visibleCategories: result.visibleCategories || [],
+      aiObservations: result.aiObservations || '',
+    };
+    
+    console.log(`  [AI] ✓ Site analyzed: ${siteProfile.companyName} (${siteProfile.industry})`);
+    console.log(`  [AI]   Search: ${siteProfile.hasSearch ? siteProfile.searchType : 'none'}`);
+    console.log(`  [AI]   Categories: ${siteProfile.visibleCategories.join(', ')}`);
     
     await stagehand.close();
     
     return {
-      profile: siteAnalysis,
+      profile: siteProfile,
       homepageScreenshotPath,
     };
     
@@ -164,7 +172,7 @@ export async function aiExecuteSearch(
   jobId: string,
   domain: string,
   query: string,
-  label: string // 'nl' or 'kw'
+  label: string
 ): Promise<AISearchResult> {
   const stagehand = await createStagehandSession();
   
@@ -172,14 +180,12 @@ export async function aiExecuteSearch(
     const url = domain.startsWith('http') ? domain : `https://${domain}`;
     console.log(`  [AI] [${label.toUpperCase()}] Navigating to: ${url}`);
     
-    await stagehand.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await stagehand.page.waitForTimeout(2000);
+    await stagehand.goto(url);
+    await new Promise(resolve => setTimeout(resolve, 2000));
     
     // Dismiss popups
     try {
-      await stagehand.act({ 
-        action: "Close any cookie consent popup or newsletter modal if present",
-      });
+      await stagehand.act("Close any cookie consent popup or newsletter modal if present");
     } catch (e) {
       // No popup
     }
@@ -189,52 +195,52 @@ export async function aiExecuteSearch(
     
     try {
       // Step 1: Find and activate search
-      await stagehand.act({
-        action: "Find the search functionality on this page. If there's a search input visible, click on it. If there's a search icon (magnifying glass), click it to open the search. Focus on the search input field.",
-      });
+      await stagehand.act(
+        "Find the search functionality on this page. If there's a search input visible, click on it. If there's a search icon (magnifying glass), click it to open the search. Focus on the search input field."
+      );
       
-      await stagehand.page.waitForTimeout(1000);
+      await new Promise(resolve => setTimeout(resolve, 1000));
       
       // Step 2: Type the query
       console.log(`  [AI] [${label.toUpperCase()}] Typing query: "${query}"`);
-      await stagehand.act({
-        action: `Type the following search query into the search input: "${query}"`,
-      });
+      await stagehand.act(`Type the following search query into the search input: "${query}"`);
       
-      await stagehand.page.waitForTimeout(1500);
+      await new Promise(resolve => setTimeout(resolve, 1500));
       
       // Step 3: Submit the search
       console.log(`  [AI] [${label.toUpperCase()}] Submitting search...`);
-      await stagehand.act({
-        action: "Submit the search by pressing Enter or clicking the search button",
-      });
+      await stagehand.act("Submit the search by pressing Enter or clicking the search button");
       
       // Wait for results to load
-      await stagehand.page.waitForTimeout(3000);
+      await new Promise(resolve => setTimeout(resolve, 3000));
       
       // Step 4: Screenshot results
       const screenshotPath = getArtifactPath(jobId, domain, `results_${label}`);
       
-      // Scroll to show products
-      await stagehand.page.evaluate(() => window.scrollTo(0, 200));
-      await stagehand.page.waitForTimeout(500);
+      const page = stagehand.context.pages()[0];
       
-      await stagehand.page.screenshot({ path: screenshotPath, quality: 80 });
+      // Scroll to show products
+      await page.evaluate(() => window.scrollTo(0, 200));
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      await page.screenshot({ path: screenshotPath, quality: 80, type: 'jpeg' });
       console.log(`  [AI] [${label.toUpperCase()}] ✓ Results screenshot saved`);
       
       // Step 5: Extract what we see on the results page
+      const resultsSchema = z.object({
+        resultCount: z.number().nullable().describe('Approximate number of products visible, null if unclear'),
+        productsFound: z.array(z.string()).describe('Names of products visible'),
+        searchSuccess: z.boolean().describe('Whether this looks like successful search results'),
+        aiObservations: z.string().describe('Observations about the results'),
+      });
+      
       const resultsAnalysis = await stagehand.extract({
         instruction: `Analyze the search results on this page:
           1. How many products are visible?
           2. List the names of the first 5-10 products you can see
           3. Does this look like a successful search results page or an error/empty page?
           4. Any observations about result quality`,
-        schema: z.object({
-          resultCount: z.number().nullable().describe('Approximate number of products visible, null if unclear'),
-          productsFound: z.array(z.string()).describe('Names of products visible'),
-          searchSuccess: z.boolean().describe('Whether this looks like successful search results'),
-          aiObservations: z.string().describe('Observations about the results'),
-        }),
+        schema: resultsSchema,
       });
       
       await stagehand.close();
@@ -243,9 +249,9 @@ export async function aiExecuteSearch(
         query,
         screenshotPath,
         resultCount: resultsAnalysis.resultCount,
-        productsFound: resultsAnalysis.productsFound,
-        searchSuccess: resultsAnalysis.searchSuccess,
-        aiObservations: resultsAnalysis.aiObservations,
+        productsFound: resultsAnalysis.productsFound || [],
+        searchSuccess: resultsAnalysis.searchSuccess ?? false,
+        aiObservations: resultsAnalysis.aiObservations || '',
       };
       
     } catch (searchError: any) {
@@ -253,7 +259,8 @@ export async function aiExecuteSearch(
       
       // Take a screenshot of whatever state we're in
       const screenshotPath = getArtifactPath(jobId, domain, `results_${label}`);
-      await stagehand.page.screenshot({ path: screenshotPath, quality: 80 });
+      const page = stagehand.context.pages()[0];
+      await page.screenshot({ path: screenshotPath, quality: 80, type: 'jpeg' });
       
       await stagehand.close();
       
@@ -291,11 +298,12 @@ export async function aiRunDualSearch(
   const stagehand = await createStagehandSession();
   const url = domain.startsWith('http') ? domain : `https://${domain}`;
   
-  await stagehand.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-  await stagehand.page.waitForTimeout(2000);
+  await stagehand.goto(url);
+  await new Promise(resolve => setTimeout(resolve, 2000));
   
   const homepageScreenshotPath = getArtifactPath(jobId, domain, 'homepage');
-  await stagehand.page.screenshot({ path: homepageScreenshotPath, quality: 80 });
+  const page = stagehand.context.pages()[0];
+  await page.screenshot({ path: homepageScreenshotPath, quality: 80, type: 'jpeg' });
   console.log(`[AI-DUAL] ✓ Homepage captured`);
   
   await stagehand.close();
@@ -479,4 +487,3 @@ function determineRelevance(result: AISearchResult): 'high' | 'medium' | 'low' |
   if (result.productsFound.length >= 2) return 'medium';
   return 'low';
 }
-
