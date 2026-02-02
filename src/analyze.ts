@@ -483,58 +483,48 @@ export async function evaluateSearchComparison(
 ): Promise<{ comparison: ComparisonAnalysis; emailHook: string | null }> {
   const startTime = Date.now();
 
-  const prompt = `Compare these two search results from ${siteProfile.company}.
+  const prompt = `You are a search quality analyst helping e-commerce websites improve their search functionality. 
 
-SEARCH 1 - Natural Language Query: "${queries.naturalLanguageQuery}"
-[Screenshot 1]
+TASK: Analyze two search result screenshots from an e-commerce website to evaluate their search quality.
 
-SEARCH 2 - Keyword Query: "${queries.keywordQuery}"  
-[Screenshot 2]
+CONTEXT: This analysis helps identify websites that could benefit from improved natural language search capabilities. This is a standard search quality evaluation - similar to how Google evaluates search results.
 
-Site context:
-- Industry: ${siteProfile.industry}
-- Catalog size: ${siteProfile.estimatedCatalogSize}
-- Expected behavior: ${queries.expectedBehavior}
+Website: ${siteProfile.company} (${siteProfile.industry})
+Catalog: ${siteProfile.estimatedCatalogSize}
 
-EVALUATE based on these criteria:
+SEARCH A - Conversational query: "${queries.naturalLanguageQuery}"
+(First screenshot)
 
-1. RELEVANCE (most important):
-   - Are NL results relevant to what customer wanted?
-   - Fewer but MORE relevant results = GOOD search
-   - Many but IRRELEVANT results = BAD search
+SEARCH B - Traditional keyword query: "${queries.keywordQuery}"
+(Second screenshot)
 
-2. MISSED PRODUCTS:
-   - What products appear in KW results but NOT in NL results?
-   - These are products the NL search "missed"
-   - List specific product names if visible
+Expected result type: ${queries.expectedBehavior}
 
-3. VERDICT:
-   - OUTREACH: NL search failed - returned irrelevant results OR missed obvious products
-   - SKIP: NL search worked - returned relevant results (even if fewer)
-   - REVIEW: Unclear, needs human check
-   - INCONCLUSIVE: Both returned 0 or couldn't evaluate
+ANALYSIS CRITERIA:
 
-KEY INSIGHT: We're looking for sites where customers have to "point, click, browse, filter" 
-instead of just typing what they want. If "red sneakers" doesn't return red sneakers = OUTREACH.
+1. Result Relevance: Do the shown products match what the customer is looking for?
+2. Product Coverage: Are there products in Search B that should have appeared in Search A?
+3. Search Effectiveness: Does the conversational search understand customer intent?
 
-IMPORTANT: You MUST respond with ONLY a JSON object, no other text. Do not apologize or explain - just output the JSON.
+SCORING:
+- OUTREACH = Conversational search needs improvement (shows irrelevant results or misses obvious products)
+- SKIP = Conversational search works well (shows relevant results)
+- REVIEW = Need more information to assess
+- INCONCLUSIVE = Cannot determine (empty results, page errors, etc.)
 
-If you cannot see the images clearly, still provide your best guess based on what you can see.
-
+Respond with this JSON structure only:
 {
-  "nlResultCount": number or null,
-  "nlRelevance": "all_relevant|mostly_relevant|mixed|irrelevant|none",
-  "nlProductsShown": ["Product 1", "Product 2"],
-  "kwResultCount": number or null,
-  "kwRelevance": "all_relevant|mostly_relevant|mixed|irrelevant|none",
-  "kwProductsShown": ["Product 1", "Product 2"],
-  "missedProducts": ["Products in KW but not NL"],
-  "verdict": "OUTREACH|SKIP|REVIEW|INCONCLUSIVE",
-  "verdictReason": "One sentence explanation",
-  "emailHook": "If OUTREACH: personalized email opener. If not: null"
-}
-
-Output the JSON now:`;
+  "nlResultCount": 0,
+  "nlRelevance": "all_relevant",
+  "nlProductsShown": ["product names visible"],
+  "kwResultCount": 0,
+  "kwRelevance": "all_relevant",
+  "kwProductsShown": ["product names visible"],
+  "missedProducts": ["products in B but not in A"],
+  "verdict": "SKIP",
+  "verdictReason": "explanation",
+  "emailHook": null
+}`;
 
   const openai = getOpenAIClient();
   const response = await openai.chat.completions.create({
