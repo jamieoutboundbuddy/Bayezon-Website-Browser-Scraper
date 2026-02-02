@@ -186,9 +186,52 @@ async function safeGoto(page: Page, url: string): Promise<boolean> {
 }
 
 /**
+ * Check if search input is already visible (no click needed)
+ * Many sites have search inputs directly visible in the header
+ */
+async function isSearchInputAlreadyVisible(page: Page): Promise<boolean> {
+  const inputSelectors = [
+    'input[type="search"]',
+    'input[name*="q" i]',
+    'input[name*="search" i]',
+    'input[placeholder*="search" i]',
+    'input[placeholder*="Search" i]',
+    'input[aria-label*="search" i]',
+    'header input[class*="search"]',
+    'nav input[class*="search"]',
+    'input[id*="search"]',
+    // Common e-commerce search patterns
+    'input.search-input',
+    'input.search__input',
+    'input.header-search',
+    '[class*="header"] input[type="text"]',
+  ];
+
+  for (const selector of inputSelectors) {
+    try {
+      const input = page.locator(selector).first();
+      const isVisible = await input.isVisible({ timeout: 500 });
+      
+      if (isVisible) {
+        console.log(`  ✓ Search input already visible: "${selector}"`);
+        return true;
+      }
+    } catch (e) {
+      // Continue
+    }
+  }
+  return false;
+}
+
+/**
  * Find and click search icon/button
  */
 async function findAndClickSearchIcon(page: Page): Promise<boolean> {
+  // FIRST: Check if search input is already visible (no click needed)
+  if (await isSearchInputAlreadyVisible(page)) {
+    return true; // Input is ready, no need to click anything
+  }
+
   const searchSelectors = [
     'button[aria-label*="search" i]',
     'button[aria-label*="Search" i]',
@@ -198,10 +241,15 @@ async function findAndClickSearchIcon(page: Page): Promise<boolean> {
     '.search-button',
     '[class*="search"][class*="icon"]',
     '[class*="search"][class*="button"]',
-    'input[type="search"]',
     'button:has-text("Search")',
     'a:has-text("Search")',
     '[role="button"]:has-text("Search")',
+    // SVG icons for search (magnifying glass)
+    'svg[class*="search"]',
+    '[class*="search"] svg',
+    'button svg',
+    // More generic patterns
+    'header button:not([class*="cart"]):not([class*="menu"])',
   ];
 
   for (const selector of searchSelectors) {
@@ -212,7 +260,7 @@ async function findAndClickSearchIcon(page: Page): Promise<boolean> {
       if (isVisible) {
         await element.click({ timeout: TIMEOUTS.elementShort });
         await sleep(1000);
-        console.log(`  ✓ Found search icon with selector: "${selector}"`);
+        console.log(`  ✓ Clicked search element: "${selector}"`);
         return true;
       }
     } catch (e) {
@@ -220,13 +268,14 @@ async function findAndClickSearchIcon(page: Page): Promise<boolean> {
     }
   }
 
+  // Fallback: look for any element with 'search' in its attributes
   try {
-    const elements = await page.$$eval('button, a, [role="button"], input', (els) => {
+    const elements = await page.$$eval('button, a, [role="button"], input, svg', (els) => {
       return els
         .map((el, idx) => ({
           index: idx,
           tag: el.tagName,
-          class: el.className,
+          class: el.className || '',
           id: el.id,
           ariaLabel: el.getAttribute('aria-label') || '',
           text: el.textContent?.trim() || '',
