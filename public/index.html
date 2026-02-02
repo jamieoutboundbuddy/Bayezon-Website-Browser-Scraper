@@ -223,17 +223,33 @@
   <main class="max-w-5xl mx-auto px-4 py-8">
     <!-- Input Form -->
     <div class="card p-6 mb-8">
-      <!-- Smart Mode Toggle -->
-      <div class="flex items-center justify-between mb-6 pb-4 border-b border-slate-700">
+      <!-- Mode Selection -->
+      <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-6 pb-4 border-b border-slate-700 gap-4">
+        <!-- Smart Mode Toggle -->
         <div class="flex items-center gap-3">
           <div class="smart-toggle-switch" id="smart-mode-toggle" onclick="toggleSmartMode()"></div>
           <div>
             <span class="font-semibold smart-toggle text-lg">Smart Mode</span>
-            <p class="text-xs text-slate-400 mt-0.5">AI automatically generates and compares queries</p>
+            <p class="text-xs text-slate-400 mt-0.5">AI generates and compares queries</p>
           </div>
         </div>
-        <div id="smart-mode-badge" class="hidden px-3 py-1 rounded-full text-xs font-semibold bg-gradient-to-r from-cyan-500/20 to-violet-500/20 text-cyan-400 border border-cyan-500/30">
-          <i class="fas fa-magic mr-1"></i> SMART
+        
+        <!-- AI Agent Toggle (only visible in Smart Mode) -->
+        <div id="ai-agent-toggle-container" class="hidden flex items-center gap-3">
+          <div class="smart-toggle-switch" id="ai-agent-toggle" onclick="toggleAIAgent()"></div>
+          <div>
+            <span class="font-semibold text-lg" style="background: linear-gradient(135deg, #f472b6, #a78bfa); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">AI Agent</span>
+            <p class="text-xs text-slate-400 mt-0.5">Autonomous visual browser control</p>
+          </div>
+        </div>
+        
+        <div class="flex gap-2">
+          <div id="smart-mode-badge" class="hidden px-3 py-1 rounded-full text-xs font-semibold bg-gradient-to-r from-cyan-500/20 to-violet-500/20 text-cyan-400 border border-cyan-500/30">
+            <i class="fas fa-magic mr-1"></i> SMART
+          </div>
+          <div id="ai-agent-badge" class="hidden px-3 py-1 rounded-full text-xs font-semibold bg-gradient-to-r from-pink-500/20 to-violet-500/20 text-pink-400 border border-pink-500/30">
+            <i class="fas fa-robot mr-1"></i> AI AGENT
+          </div>
         </div>
       </div>
       
@@ -280,6 +296,10 @@
       <p id="smart-tip" class="hidden text-xs text-slate-500 mt-3">
         <i class="fas fa-robot text-cyan-400 mr-1"></i>
         <strong>Smart Mode:</strong> Just enter a domain - AI will analyze the site, generate test queries, and compare natural language vs keyword search
+      </p>
+      <p id="ai-agent-tip" class="hidden text-xs text-slate-500 mt-3">
+        <i class="fas fa-brain text-pink-400 mr-1"></i>
+        <strong>AI Agent Mode:</strong> Fully autonomous visual browser control using Stagehand. The AI "sees" the page and figures out how to interact with it - no selectors needed. Works on ANY website!
       </p>
     </div>
 

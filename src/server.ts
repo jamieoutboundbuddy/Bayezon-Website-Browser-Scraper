@@ -26,6 +26,7 @@ import { analyzeSearchQuality, evaluateSearchComparison, isOpenAIConfigured, Com
 import { analyzeSite } from './reconnaissance';
 import { generateTestQueries } from './queryGenerator';
 import { getDb } from './db';
+import { aiFullAnalysis } from './aiAgent';
 import { 
   getArtifactPath, 
   getArtifactUrl, 
@@ -583,6 +584,108 @@ app.post('/api/analyze', async (req: Request, res: Response) => {
     res.status(500).json({ 
       error: error.message || 'Smart analysis failed',
       jobId 
+    });
+  }
+});
+
+/**
+ * POST /api/ai-analyze - AI-powered autonomous analysis
+ * Uses Stagehand for intelligent, adaptive browser control
+ * Body: { domain: string }
+ * Returns: AI-powered analysis results
+ */
+app.post('/api/ai-analyze', async (req: Request, res: Response) => {
+  const { domain } = req.body;
+  
+  if (!domain) {
+    return res.status(400).json({ error: 'domain is required' });
+  }
+  
+  // Check if OpenAI is configured (required for AI analysis)
+  if (!isOpenAIConfigured()) {
+    return res.status(400).json({ 
+      error: 'OpenAI API key not configured. Set OPENAI_API_KEY environment variable.',
+      hint: 'AI analysis requires OpenAI for vision-based browser control'
+    });
+  }
+  
+  const startTime = Date.now();
+  const jobId = createJob(domain, 'ai-analysis');
+  const normalizedDomain = normalizeDomain(domain);
+  const domainName = getDomainName(normalizedDomain);
+  
+  try {
+    console.log(`\n[AI-ANALYZE] ========================================`);
+    console.log(`[AI-ANALYZE] Starting AI-powered analysis for: ${domain}`);
+    console.log(`[AI-ANALYZE] Job ID: ${jobId}`);
+    console.log(`[AI-ANALYZE] ========================================\n`);
+    
+    // Run the full AI-powered analysis
+    const result = await aiFullAnalysis(jobId, domain);
+    
+    // Build screenshot URLs
+    const baseUrl = getBaseUrl(req);
+    const screenshotUrls: Record<string, string> = {
+      homepage: `${baseUrl}${getArtifactUrl(jobId, domainName, 'homepage')}`,
+      results_nl: `${baseUrl}${getArtifactUrl(jobId, domainName, 'results_nl')}`,
+      results_kw: `${baseUrl}${getArtifactUrl(jobId, domainName, 'results_kw')}`
+    };
+    
+    const response = {
+      jobId,
+      domain,
+      mode: 'ai-autonomous',
+      siteProfile: {
+        companyName: result.siteProfile.companyName,
+        industry: result.siteProfile.industry,
+        hasSearch: result.siteProfile.hasSearch,
+        searchType: result.siteProfile.searchType,
+        visibleCategories: result.siteProfile.visibleCategories,
+        aiObservations: result.siteProfile.aiObservations,
+      },
+      queriesTested: {
+        naturalLanguageQuery: result.nlQuery,
+        keywordQuery: result.kwQuery,
+        queryBasis: 'ai-generated',
+        expectedBehavior: 'AI-determined based on site analysis',
+      },
+      comparison: {
+        nlRelevance: result.comparison.nlRelevance,
+        kwRelevance: result.comparison.kwRelevance,
+        verdict: result.comparison.verdict,
+        reason: result.comparison.reason,
+        nlProductsFound: result.searchResults.naturalLanguage.productsFound,
+        kwProductsFound: result.searchResults.keyword.productsFound,
+        nlObservations: result.searchResults.naturalLanguage.aiObservations,
+        kwObservations: result.searchResults.keyword.aiObservations,
+      },
+      confidence: {
+        level: result.searchResults.naturalLanguage.searchSuccess && result.searchResults.keyword.searchSuccess 
+          ? 'high' : 'medium',
+        reasons: [
+          `AI successfully navigated ${domain}`,
+          `Search type detected: ${result.siteProfile.searchType}`,
+          `NL search: ${result.searchResults.naturalLanguage.searchSuccess ? 'success' : 'failed'}`,
+          `KW search: ${result.searchResults.keyword.searchSuccess ? 'success' : 'failed'}`,
+        ]
+      },
+      screenshotUrls,
+      durationMs: Date.now() - startTime
+    };
+    
+    console.log(`\n[AI-ANALYZE] ========================================`);
+    console.log(`[AI-ANALYZE] Completed in ${response.durationMs}ms`);
+    console.log(`[AI-ANALYZE] Verdict: ${response.comparison.verdict}`);
+    console.log(`[AI-ANALYZE] ========================================\n`);
+    
+    res.json(response);
+    
+  } catch (error: any) {
+    console.error(`[AI-ANALYZE] Error:`, error);
+    res.status(500).json({ 
+      error: error.message || 'AI analysis failed',
+      jobId,
+      hint: 'Check that OPENAI_API_KEY and BROWSERBASE credentials are correct'
     });
   }
 });
