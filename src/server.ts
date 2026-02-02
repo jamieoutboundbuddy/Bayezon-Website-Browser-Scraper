@@ -4,6 +4,8 @@
 
 import express, { Request, Response } from 'express';
 import cors from 'cors';
+import path from 'path';
+import fs from 'fs';
 import dotenv from 'dotenv';
 
 import {
@@ -13,14 +15,16 @@ import {
 } from './jobs';
 import { runSearchJourney, closeBrowser } from './search';
 import { 
+  SearchScreenshot,
   SmartAnalysisResult, 
   SiteProfile, 
   TestQueries, 
   ComparisonAnalysis, 
   Confidence 
 } from './types';
-import { isOpenAIConfigured } from './analyze';
+import { analyzeSearchQuality, isOpenAIConfigured } from './analyze';
 import { aiFullAnalysis } from './aiAgent';
+import { getDb } from './db';
 import { 
   getArtifactPath, 
   getArtifactUrl, 
@@ -46,6 +50,66 @@ function getBaseUrl(req: Request): string {
   const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
   const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost:3000';
   return `${protocol}://${host}`;
+}
+
+/**
+ * Format screenshots for OpenAI Vision API
+ */
+interface OpenAIImageContent {
+  type: 'image_url';
+  image_url: {
+    url: string;
+    detail?: 'low' | 'high' | 'auto';
+  };
+}
+
+interface ScreenshotWithBase64 extends SearchScreenshot {
+  base64?: string;
+  openai_format?: OpenAIImageContent;
+}
+
+function screenshotToBase64(screenshotUrl: string): string | null {
+  try {
+    const filePath = path.join(process.cwd(), screenshotUrl);
+    if (fs.existsSync(filePath)) {
+      const imageBuffer = fs.readFileSync(filePath);
+      const base64 = imageBuffer.toString('base64');
+      return `data:image/jpeg;base64,${base64}`;
+    }
+  } catch (e) {
+    console.error('Error converting screenshot to base64:', e);
+  }
+  return null;
+}
+
+function formatScreenshotsForOpenAI(screenshots: SearchScreenshot[], baseUrl?: string): ScreenshotWithBase64[] {
+  return screenshots.map(screenshot => {
+    const base64 = screenshotToBase64(screenshot.screenshotUrl);
+    const result: ScreenshotWithBase64 = {
+      ...screenshot,
+    };
+    
+    if (base64) {
+      result.base64 = base64;
+      result.openai_format = {
+        type: 'image_url',
+        image_url: {
+          url: base64,
+          detail: 'high',
+        },
+      };
+    } else if (baseUrl) {
+      result.openai_format = {
+        type: 'image_url',
+        image_url: {
+          url: `${baseUrl}${screenshot.screenshotUrl}`,
+          detail: 'high',
+        },
+      };
+    }
+    
+    return result;
+  });
 }
 
 /**
@@ -250,7 +314,7 @@ app.post('/api/search/sync', async (req: Request, res: Response) => {
       screenshots_count: job.result.screenshots.length,
       screenshots: formatScreenshotsForOpenAI(job.result.screenshots, baseUrl),
       openai_images: formatScreenshotsForOpenAI(job.result.screenshots, baseUrl)
-        .map(s => s.openai_format)
+        .map((s: ScreenshotWithBase64) => s.openai_format)
         .filter(Boolean),
     };
     
@@ -324,6 +388,13 @@ app.post('/api/analyze', async (req: Request, res: Response) => {
     };
     
     // Convert AI Agent result to SmartAnalysisResult format
+    const searchTypeMap: Record<string, 'modal' | 'page' | 'instant' | 'unknown'> = {
+      'visible_input': 'instant',
+      'icon_triggered': 'modal',
+      'hamburger_menu': 'modal',
+      'none': 'unknown'
+    };
+    
     const siteProfile: SiteProfile = {
       company: aiResult.siteProfile.companyName,
       industry: aiResult.siteProfile.industry,
@@ -331,7 +402,7 @@ app.post('/api/analyze', async (req: Request, res: Response) => {
       visibleCategories: aiResult.siteProfile.visibleCategories,
       estimatedCatalogSize: 'medium',
       hasSearch: aiResult.siteProfile.hasSearch,
-      searchType: aiResult.siteProfile.searchType
+      searchType: searchTypeMap[aiResult.siteProfile.searchType] || 'unknown'
     };
     
     const comparison: ComparisonAnalysis = {
@@ -349,7 +420,7 @@ app.post('/api/analyze', async (req: Request, res: Response) => {
     const queries: TestQueries = {
       naturalLanguageQuery: aiResult.nlQuery,
       keywordQuery: aiResult.kwQuery,
-      queryBasis: 'ai-generated',
+      queryBasis: 'inferred',
       expectedBehavior: 'AI-determined based on site analysis'
     };
     
