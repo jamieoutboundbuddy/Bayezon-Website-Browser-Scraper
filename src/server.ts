@@ -4,8 +4,6 @@
 
 import express, { Request, Response } from 'express';
 import cors from 'cors';
-import path from 'path';
-import fs from 'fs';
 import dotenv from 'dotenv';
 
 import {
@@ -13,7 +11,7 @@ import {
   getJob,
   cleanupOldJobs,
 } from './jobs';
-import { closeBrowser } from './search';
+import { runSearchJourney, closeBrowser } from './search';
 import { 
   SmartAnalysisResult, 
   SiteProfile, 
