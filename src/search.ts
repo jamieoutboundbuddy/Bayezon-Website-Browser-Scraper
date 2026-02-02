@@ -4,7 +4,7 @@
 
 import { Browser, Page, BrowserContext, chromium } from 'playwright';
 import Browserbase from '@browserbasehq/sdk';
-import { SearchResult } from './types';
+import { SearchResult, TestQueries, SingleSearchResult, DualSearchResult } from './types';
 import { 
   getArtifactPath, 
   getArtifactUrl, 
@@ -552,6 +552,188 @@ export async function runSearchJourney(
     };
   } finally {
     // Close browser connection (session auto-closes on Browserbase)
+    if (browser) {
+      try {
+        await browser.close();
+      } catch (e) {
+        // Ignore close errors
+      }
+    }
+    if (sessionId) {
+      console.log(`  Session ${sessionId} completed`);
+    }
+  }
+}
+
+/**
+ * Execute a single search and capture screenshot of results
+ */
+async function executeSearch(
+  page: Page,
+  query: string,
+  jobId: string,
+  domainName: string,
+  label: string
+): Promise<SingleSearchResult> {
+  console.log(`  [${label.toUpperCase()}] Executing search: "${query}"`);
+  
+  // Find and click search icon
+  const searchIconFound = await findAndClickSearchIcon(page);
+  if (!searchIconFound) {
+    console.log(`  ⚠ [${label.toUpperCase()}] Search icon not found`);
+    return {
+      query,
+      resultCount: null,
+      firstTenProducts: [],
+      screenshotPath: '',
+      relevanceToQuery: 'none'
+    };
+  }
+  
+  // Find search input
+  const inputFound = await findSearchInput(page);
+  if (!inputFound) {
+    console.log(`  ⚠ [${label.toUpperCase()}] Search input not found`);
+    return {
+      query,
+      resultCount: null,
+      firstTenProducts: [],
+      screenshotPath: '',
+      relevanceToQuery: 'none'
+    };
+  }
+  
+  // Type the query
+  await page.keyboard.type(query, { delay: 50 });
+  await sleep(1500);
+  
+  // Submit search via Enter
+  await page.keyboard.press('Enter');
+  await sleep(2000);
+  
+  // Wait for results to load (but don't wait forever)
+  try {
+    await page.waitForSelector('[class*="product"], [class*="item"], [class*="result"], [class*="grid"]', {
+      timeout: 3000,
+      state: 'visible'
+    });
+    console.log(`  ✓ [${label.toUpperCase()}] Results loaded`);
+  } catch (e) {
+    console.log(`  ⚠ [${label.toUpperCase()}] Results selector not found, continuing anyway`);
+  }
+  
+  // Dismiss any popups that appeared
+  await dismissPopups(page);
+  
+  // Quick scroll to ensure content loads
+  await scrollToLoadContent(page);
+  
+  // Screenshot the first results (capture what's visible without infinite scroll)
+  const screenshotPath = getArtifactPath(jobId, domainName, `results_${label}`);
+  
+  // Get page height but cap it to show first ~10 results
+  const pageHeight = await page.evaluate(() => Math.min(document.body.scrollHeight, 2000));
+  await page.setViewportSize({ width: 1280, height: pageHeight });
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.screenshot({ path: screenshotPath, quality: 70, fullPage: false });
+  await page.setViewportSize({ width: 1280, height: 1024 });
+  
+  console.log(`  ✓ [${label.toUpperCase()}] Screenshot captured: ${screenshotPath}`);
+  
+  return {
+    query,
+    resultCount: null,  // LLM will determine from screenshot
+    firstTenProducts: [],  // LLM will extract
+    screenshotPath,
+    relevanceToQuery: 'mixed'  // LLM will evaluate
+  };
+}
+
+/**
+ * Run dual search comparison - NL query vs Keyword query
+ * Captures homepage, then runs both searches with state reset between them
+ */
+export async function runDualSearch(
+  jobId: string,
+  domain: string,
+  queries: TestQueries
+): Promise<DualSearchResult> {
+  let browser: Browser | null = null;
+  let sessionId: string | null = null;
+  
+  const domainName = getDomainName(domain);
+  const normalizedDomain = normalizeDomain(domain);
+  
+  try {
+    console.log(`[DUAL] Starting dual search for: ${domain}`);
+    console.log(`[DUAL] NL Query: "${queries.naturalLanguageQuery}"`);
+    console.log(`[DUAL] KW Query: "${queries.keywordQuery}"`);
+    
+    // Create Browserbase session
+    const session = await createBrowserbaseSession();
+    browser = session.browser;
+    sessionId = session.sessionId;
+    
+    // Get the default context
+    const contexts = browser.contexts();
+    const context = contexts[0] || await browser.newContext({
+      locale: 'en-US',
+      timezoneId: 'America/New_York',
+      extraHTTPHeaders: {
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
+    });
+    
+    const page = context.pages()[0] || await context.newPage();
+    await page.setViewportSize({ width: 1280, height: 1024 });
+    
+    // Step 1: Navigate to homepage
+    console.log(`[DUAL] Navigating to homepage: ${normalizedDomain}`);
+    const homepageLoaded = await safeGoto(page, normalizedDomain);
+    
+    if (!homepageLoaded) {
+      throw new Error('Failed to load homepage');
+    }
+    
+    await dismissPopups(page);
+    
+    // Screenshot homepage
+    const homepagePath = getArtifactPath(jobId, domainName, 'homepage');
+    await page.screenshot({ path: homepagePath, quality: 70, fullPage: false });
+    const homepageUrl = page.url();
+    console.log(`  ✓ Homepage screenshot captured`);
+    
+    // Step 2: Execute Natural Language search
+    console.log(`[DUAL] Phase 1: Natural Language Search`);
+    const nlResult = await executeSearch(page, queries.naturalLanguageQuery, jobId, domainName, 'nl');
+    
+    // Step 3: RESET - Go back to homepage to clear search state
+    console.log(`[DUAL] Resetting to homepage...`);
+    await page.goto(normalizedDomain, { waitUntil: 'domcontentloaded', timeout: TIMEOUTS.navigation });
+    await sleep(500);
+    await dismissPopups(page);
+    console.log(`  ✓ Reset complete`);
+    
+    // Step 4: Execute Keyword search
+    console.log(`[DUAL] Phase 2: Keyword Search`);
+    const kwResult = await executeSearch(page, queries.keywordQuery, jobId, domainName, 'kw');
+    
+    console.log(`[DUAL] Dual search completed successfully`);
+    
+    return {
+      homepage: { 
+        screenshotPath: homepagePath, 
+        url: homepageUrl 
+      },
+      naturalLanguage: nlResult,
+      keyword: kwResult
+    };
+    
+  } catch (error: any) {
+    console.error(`[DUAL] Error in dual search:`, error);
+    throw error;
+  } finally {
+    // Close browser connection
     if (browser) {
       try {
         await browser.close();

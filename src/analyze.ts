@@ -5,6 +5,8 @@
 import OpenAI from 'openai';
 import fs from 'fs';
 import path from 'path';
+import { TestQueries, SiteProfile, ComparisonAnalysis } from './types';
+import { getDb } from './db';
 
 // Lazy-loaded OpenAI client (only initialized when needed)
 let openaiClient: OpenAI | null = null;
@@ -19,6 +21,23 @@ function getOpenAIClient(): OpenAI {
     });
   }
   return openaiClient;
+}
+
+/**
+ * Clean JSON response from LLM (remove markdown wrapping)
+ */
+function cleanJsonResponse(content: string): string {
+  let jsonStr = content.trim();
+  if (jsonStr.startsWith('```json')) {
+    jsonStr = jsonStr.slice(7);
+  }
+  if (jsonStr.startsWith('```')) {
+    jsonStr = jsonStr.slice(3);
+  }
+  if (jsonStr.endsWith('```')) {
+    jsonStr = jsonStr.slice(0, -3);
+  }
+  return jsonStr.trim();
 }
 
 export interface SearchIssue {
@@ -448,6 +467,123 @@ Be specific and use actual product names and details from the screenshots. The s
     console.error('OpenAI analysis error:', error);
     throw new Error(`Analysis failed: ${error.message}`);
   }
+}
+
+/**
+ * Evaluate search comparison between natural language and keyword search results
+ * This is the core evaluation for the Smart SDR Agent
+ */
+export async function evaluateSearchComparison(
+  jobId: string,
+  domain: string,
+  queries: TestQueries,
+  nlScreenshotBase64: string,
+  kwScreenshotBase64: string,
+  siteProfile: SiteProfile
+): Promise<{ comparison: ComparisonAnalysis; emailHook: string | null }> {
+  const startTime = Date.now();
+
+  const prompt = `Compare these two search results from ${siteProfile.company}.
+
+SEARCH 1 - Natural Language Query: "${queries.naturalLanguageQuery}"
+[Screenshot 1]
+
+SEARCH 2 - Keyword Query: "${queries.keywordQuery}"  
+[Screenshot 2]
+
+Site context:
+- Industry: ${siteProfile.industry}
+- Catalog size: ${siteProfile.estimatedCatalogSize}
+- Expected behavior: ${queries.expectedBehavior}
+
+EVALUATE based on these criteria:
+
+1. RELEVANCE (most important):
+   - Are NL results relevant to what customer wanted?
+   - Fewer but MORE relevant results = GOOD search
+   - Many but IRRELEVANT results = BAD search
+
+2. MISSED PRODUCTS:
+   - What products appear in KW results but NOT in NL results?
+   - These are products the NL search "missed"
+   - List specific product names if visible
+
+3. VERDICT:
+   - OUTREACH: NL search failed - returned irrelevant results OR missed obvious products
+   - SKIP: NL search worked - returned relevant results (even if fewer)
+   - REVIEW: Unclear, needs human check
+   - INCONCLUSIVE: Both returned 0 or couldn't evaluate
+
+KEY INSIGHT: We're looking for sites where customers have to "point, click, browse, filter" 
+instead of just typing what they want. If "red sneakers" doesn't return red sneakers = OUTREACH.
+
+Return JSON only:
+{
+  "nlResultCount": number or null,
+  "nlRelevance": "all_relevant|mostly_relevant|mixed|irrelevant|none",
+  "nlProductsShown": ["Product 1", "Product 2"],
+  "kwResultCount": number or null,
+  "kwRelevance": "all_relevant|mostly_relevant|mixed|irrelevant|none",
+  "kwProductsShown": ["Product 1", "Product 2"],
+  "missedProducts": ["Products in KW but not NL"],
+  "verdict": "OUTREACH|SKIP|REVIEW|INCONCLUSIVE",
+  "verdictReason": "One sentence explanation",
+  "emailHook": "If OUTREACH: personalized email opener. If not: null"
+}`;
+
+  const openai = getOpenAIClient();
+  const response = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: prompt },
+          { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${nlScreenshotBase64}`, detail: 'high' } },
+          { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${kwScreenshotBase64}`, detail: 'high' } }
+        ]
+      }
+    ],
+    max_tokens: 1500,
+    temperature: 0
+  });
+
+  const content = response.choices[0]?.message?.content || '{}';
+  const durationMs = Date.now() - startTime;
+
+  // Log to database
+  await getDb().llmLog.create({
+    data: {
+      jobId,
+      domain,
+      phase: 'evaluation',
+      prompt,
+      response: content,
+      model: 'gpt-4o',
+      tokensUsed: response.usage?.total_tokens,
+      durationMs
+    }
+  });
+
+  const parsed = JSON.parse(cleanJsonResponse(content));
+  
+  // Build the comparison analysis object
+  const comparison: ComparisonAnalysis = {
+    nlResultCount: parsed.nlResultCount ?? null,
+    nlRelevance: parsed.nlRelevance || 'mixed',
+    nlProductsShown: parsed.nlProductsShown || [],
+    kwResultCount: parsed.kwResultCount ?? null,
+    kwRelevance: parsed.kwRelevance || 'mixed',
+    kwProductsShown: parsed.kwProductsShown || [],
+    missedProducts: parsed.missedProducts || [],
+    verdict: parsed.verdict || 'REVIEW',
+    verdictReason: parsed.verdictReason || ''
+  };
+  
+  return {
+    comparison,
+    emailHook: parsed.emailHook || null
+  };
 }
 
 /**

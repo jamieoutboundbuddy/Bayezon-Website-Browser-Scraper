@@ -6,48 +6,254 @@
   <title>Search Quality Analyzer - Bayezon</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
-    body { font-family: 'Inter', system-ui, -apple-system, sans-serif; }
-    .verdict-outreach { background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%); }
-    .verdict-maybe { background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); }
-    .verdict-skip { background: linear-gradient(135deg, #10b981 0%, #059669 100%); }
-    .screenshot-container { aspect-ratio: 16/10; overflow: hidden; }
-    .screenshot-container img { width: 100%; height: 100%; object-fit: cover; object-position: top; }
+    :root {
+      --accent-cyan: #22d3ee;
+      --accent-violet: #a78bfa;
+      --accent-pink: #f472b6;
+      --bg-dark: #0f0f1a;
+      --bg-card: #1a1a2e;
+      --bg-card-hover: #242442;
+      --text-primary: #f8fafc;
+      --text-secondary: #94a3b8;
+      --border-subtle: rgba(148, 163, 184, 0.1);
+    }
+    body { 
+      font-family: 'Outfit', system-ui, -apple-system, sans-serif;
+      background: var(--bg-dark);
+      color: var(--text-primary);
+    }
+    .font-mono { font-family: 'JetBrains Mono', monospace; }
+    
+    /* Gradient backgrounds */
+    .gradient-border {
+      background: linear-gradient(135deg, var(--accent-cyan), var(--accent-violet), var(--accent-pink));
+      padding: 1px;
+      border-radius: 1rem;
+    }
+    .gradient-border-inner {
+      background: var(--bg-card);
+      border-radius: calc(1rem - 1px);
+    }
+    
+    /* Verdict styles */
+    .verdict-outreach { 
+      background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%);
+      box-shadow: 0 0 40px rgba(220, 38, 38, 0.3);
+    }
+    .verdict-maybe { 
+      background: linear-gradient(135deg, #f59e0b 0%, #b45309 100%);
+      box-shadow: 0 0 40px rgba(245, 158, 11, 0.3);
+    }
+    .verdict-skip { 
+      background: linear-gradient(135deg, #10b981 0%, #047857 100%);
+      box-shadow: 0 0 40px rgba(16, 185, 129, 0.3);
+    }
+    .verdict-inconclusive {
+      background: linear-gradient(135deg, #6366f1 0%, #4338ca 100%);
+      box-shadow: 0 0 40px rgba(99, 102, 241, 0.3);
+    }
+    
+    /* Cards */
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: 1rem;
+      transition: all 0.2s ease;
+    }
+    .card:hover {
+      background: var(--bg-card-hover);
+      border-color: rgba(148, 163, 184, 0.2);
+    }
+    
+    /* Screenshot container */
+    .screenshot-container { 
+      aspect-ratio: 16/10; 
+      overflow: hidden;
+      background: var(--bg-dark);
+    }
+    .screenshot-container img { 
+      width: 100%; 
+      height: 100%; 
+      object-fit: cover; 
+      object-position: top;
+      transition: transform 0.3s ease;
+    }
+    .screenshot-container:hover img {
+      transform: scale(1.02);
+    }
+    
+    /* Animations */
     .pulse { animation: pulse 2s infinite; }
     @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
-    .collapsible-content { max-height: 0; overflow: hidden; transition: max-height 0.3s ease-out; }
-    .collapsible-content.open { max-height: 2000px; }
+    
+    .collapsible-content { 
+      max-height: 0; 
+      overflow: hidden; 
+      transition: max-height 0.3s ease-out; 
+    }
+    .collapsible-content.open { 
+      max-height: 2000px; 
+    }
+    
+    /* Smart Mode toggle */
+    .smart-toggle {
+      background: linear-gradient(135deg, var(--accent-cyan), var(--accent-violet));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .smart-toggle-switch {
+      position: relative;
+      width: 52px;
+      height: 28px;
+      background: #334155;
+      border-radius: 9999px;
+      transition: background 0.3s ease;
+      cursor: pointer;
+    }
+    .smart-toggle-switch.active {
+      background: linear-gradient(135deg, var(--accent-cyan), var(--accent-violet));
+    }
+    .smart-toggle-switch::after {
+      content: '';
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 24px;
+      height: 24px;
+      background: white;
+      border-radius: 50%;
+      transition: transform 0.3s ease;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+    .smart-toggle-switch.active::after {
+      transform: translateX(24px);
+    }
+    
+    /* Confidence badges */
+    .confidence-high { 
+      background: linear-gradient(135deg, #10b981, #059669);
+      color: white;
+    }
+    .confidence-medium { 
+      background: linear-gradient(135deg, #f59e0b, #d97706);
+      color: white;
+    }
+    .confidence-low { 
+      background: linear-gradient(135deg, #6366f1, #4f46e5);
+      color: white;
+    }
+    
+    /* Comparison grid */
+    .comparison-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: 1rem;
+      overflow: hidden;
+    }
+    .comparison-header-nl {
+      background: linear-gradient(135deg, var(--accent-cyan), #0ea5e9);
+    }
+    .comparison-header-kw {
+      background: linear-gradient(135deg, var(--accent-violet), #7c3aed);
+    }
+    
+    /* Missed products tag */
+    .missed-product-tag {
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      color: #fca5a5;
+    }
+    
+    /* Glow effects */
+    .glow-cyan { box-shadow: 0 0 20px rgba(34, 211, 238, 0.2); }
+    .glow-violet { box-shadow: 0 0 20px rgba(167, 139, 250, 0.2); }
+    
+    /* Input styles */
+    .input-dark {
+      background: var(--bg-dark);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-primary);
+    }
+    .input-dark:focus {
+      outline: none;
+      border-color: var(--accent-cyan);
+      box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.1);
+    }
+    .input-dark::placeholder {
+      color: var(--text-secondary);
+    }
+    
+    /* Button primary */
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent-cyan), var(--accent-violet));
+      color: var(--bg-dark);
+      font-weight: 600;
+      transition: all 0.2s ease;
+    }
+    .btn-primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 20px rgba(34, 211, 238, 0.3);
+    }
+    .btn-primary:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
   </style>
 </head>
-<body class="bg-slate-50 min-h-screen">
+<body class="min-h-screen">
   <!-- Header -->
-  <header class="bg-slate-900 text-white py-6">
-    <div class="max-w-4xl mx-auto px-4">
-      <h1 class="text-2xl font-bold">Search Quality Analyzer</h1>
-      <p class="text-slate-400 text-sm mt-1">Find websites with broken search to pitch your solution</p>
+  <header class="py-8 px-4 border-b border-slate-800">
+    <div class="max-w-5xl mx-auto">
+      <div class="flex items-center gap-3 mb-2">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-400 to-violet-500 flex items-center justify-center">
+          <i class="fas fa-search text-slate-900 text-lg"></i>
+        </div>
+        <h1 class="text-2xl font-bold">Search Quality Analyzer</h1>
+      </div>
+      <p class="text-slate-400 text-sm ml-13">Find websites with broken search to pitch your solution</p>
     </div>
   </header>
 
-  <main class="max-w-4xl mx-auto px-4 py-8">
+  <main class="max-w-5xl mx-auto px-4 py-8">
     <!-- Input Form -->
-    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-8">
+    <div class="card p-6 mb-8">
+      <!-- Smart Mode Toggle -->
+      <div class="flex items-center justify-between mb-6 pb-4 border-b border-slate-700">
+        <div class="flex items-center gap-3">
+          <div class="smart-toggle-switch" id="smart-mode-toggle" onclick="toggleSmartMode()"></div>
+          <div>
+            <span class="font-semibold smart-toggle text-lg">Smart Mode</span>
+            <p class="text-xs text-slate-400 mt-0.5">AI automatically generates and compares queries</p>
+          </div>
+        </div>
+        <div id="smart-mode-badge" class="hidden px-3 py-1 rounded-full text-xs font-semibold bg-gradient-to-r from-cyan-500/20 to-violet-500/20 text-cyan-400 border border-cyan-500/30">
+          <i class="fas fa-magic mr-1"></i> SMART
+        </div>
+      </div>
+      
       <div class="grid md:grid-cols-2 gap-4 mb-4">
         <div>
-          <label class="block text-sm font-medium text-slate-700 mb-2">Website</label>
+          <label class="block text-sm font-medium text-slate-300 mb-2">Website</label>
           <input 
             type="text" 
             id="domain-input"
-            placeholder="citybeach.com.au"
-            class="w-full px-4 py-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900"
+            placeholder="zone3.com"
+            class="w-full px-4 py-3 rounded-lg input-dark"
           >
         </div>
-        <div>
-          <label class="block text-sm font-medium text-slate-700 mb-2">Natural Language Query</label>
+        <div id="query-input-container">
+          <label class="block text-sm font-medium text-slate-300 mb-2">Natural Language Query</label>
           <input 
             type="text" 
             id="query-input"
             placeholder="dress for a night out"
-            class="w-full px-4 py-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-900"
+            class="w-full px-4 py-3 rounded-lg input-dark"
           >
         </div>
       </div>
@@ -56,37 +262,190 @@
         <button 
           id="search-btn"
           onclick="startAnalysis()"
-          class="flex-1 bg-slate-900 text-white py-3 px-6 rounded-lg font-medium hover:bg-slate-800 transition flex items-center justify-center gap-2"
+          class="flex-1 py-3 px-6 rounded-lg font-semibold btn-primary flex items-center justify-center gap-2"
         >
           <i class="fas fa-search"></i>
-          Analyze Search Quality
+          <span id="search-btn-text">Analyze Search Quality</span>
         </button>
-        <label class="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
-          <input type="checkbox" id="analyze-toggle" checked class="rounded">
+        <label id="ai-toggle-container" class="flex items-center gap-2 text-sm text-slate-400 cursor-pointer">
+          <input type="checkbox" id="analyze-toggle" checked class="rounded bg-slate-700 border-slate-600">
           <span>AI Analysis</span>
         </label>
       </div>
       
-      <p class="text-xs text-slate-500 mt-3">
-        <i class="fas fa-lightbulb text-amber-500 mr-1"></i>
-        <strong>Tip:</strong> Use natural language queries like "comfortable running shoes for flat feet" instead of simple keywords like "shoes"
+      <p id="manual-tip" class="text-xs text-slate-500 mt-3">
+        <i class="fas fa-lightbulb text-amber-400 mr-1"></i>
+        <strong>Tip:</strong> Use natural language queries like "comfortable running shoes for flat feet" instead of simple keywords
+      </p>
+      <p id="smart-tip" class="hidden text-xs text-slate-500 mt-3">
+        <i class="fas fa-robot text-cyan-400 mr-1"></i>
+        <strong>Smart Mode:</strong> Just enter a domain - AI will analyze the site, generate test queries, and compare natural language vs keyword search
       </p>
     </div>
 
     <!-- Loading State -->
     <div id="loading-state" class="hidden">
-      <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-8 text-center">
-        <div class="inline-flex items-center justify-center w-16 h-16 bg-slate-100 rounded-full mb-4">
-          <i class="fas fa-spinner fa-spin text-2xl text-slate-600"></i>
+      <div class="card p-8 text-center">
+        <div class="inline-flex items-center justify-center w-16 h-16 bg-slate-800 rounded-full mb-4">
+          <i class="fas fa-spinner fa-spin text-2xl text-cyan-400"></i>
         </div>
-        <p id="loading-message" class="text-slate-600 font-medium">Taking screenshots...</p>
-        <div class="w-full bg-slate-200 rounded-full h-2 mt-4 max-w-xs mx-auto">
-          <div id="progress-bar" class="bg-slate-900 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+        <p id="loading-message" class="text-slate-300 font-medium">Taking screenshots...</p>
+        <div class="w-full bg-slate-800 rounded-full h-2 mt-4 max-w-xs mx-auto overflow-hidden">
+          <div id="progress-bar" class="bg-gradient-to-r from-cyan-400 to-violet-500 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
         </div>
       </div>
     </div>
 
-    <!-- Results Section -->
+    <!-- Smart Mode Results Section -->
+    <div id="smart-results-section" class="hidden space-y-6">
+      
+      <!-- Verdict Hero Card -->
+      <div id="smart-verdict-card" class="rounded-xl text-white p-8">
+        <div class="flex items-start justify-between">
+          <div>
+            <div class="flex items-center gap-3 mb-3">
+              <span id="smart-verdict-badge" class="text-xs font-bold uppercase tracking-wider bg-white/20 px-3 py-1 rounded-full"></span>
+              <span id="smart-confidence-badge" class="text-xs font-bold uppercase tracking-wider px-3 py-1 rounded-full"></span>
+            </div>
+            <h2 id="smart-verdict-title" class="text-3xl font-bold mb-2"></h2>
+            <p id="smart-verdict-reason" class="text-white/90 text-lg"></p>
+          </div>
+          <div class="text-right">
+            <div id="smart-duration" class="text-sm text-white/60 font-mono"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Site Profile Card -->
+      <div class="card p-6">
+        <h3 class="font-semibold text-slate-200 mb-4 flex items-center gap-2">
+          <i class="fas fa-building text-cyan-400"></i>
+          Site Profile
+        </h3>
+        <div class="grid md:grid-cols-2 lg:grid-cols-4 gap-4" id="site-profile-grid">
+          <!-- Filled by JS -->
+        </div>
+      </div>
+
+      <!-- Comparison View -->
+      <div class="grid md:grid-cols-2 gap-6">
+        <!-- Natural Language Results -->
+        <div class="comparison-card">
+          <div class="comparison-header-nl p-4">
+            <h4 class="font-semibold text-slate-900 flex items-center gap-2">
+              <i class="fas fa-comment-dots"></i>
+              Natural Language Search
+            </h4>
+            <p id="nl-query" class="text-sm text-slate-700 mt-1 font-mono"></p>
+          </div>
+          <div class="p-4">
+            <div class="flex items-center justify-between mb-4">
+              <div>
+                <span class="text-sm text-slate-400">Results</span>
+                <p id="nl-result-count" class="text-2xl font-bold text-slate-200"></p>
+              </div>
+              <div id="nl-relevance-badge" class="px-3 py-1 rounded-full text-xs font-semibold"></div>
+            </div>
+            <div class="screenshot-container rounded-lg cursor-pointer" onclick="openModal(document.getElementById('nl-screenshot').src, 'Natural Language Results')">
+              <img id="nl-screenshot" src="" alt="NL Results">
+            </div>
+            <div class="mt-4">
+              <h5 class="text-sm font-medium text-slate-400 mb-2">Products Shown</h5>
+              <div id="nl-products" class="flex flex-wrap gap-2">
+                <!-- Filled by JS -->
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Keyword Results -->
+        <div class="comparison-card">
+          <div class="comparison-header-kw p-4">
+            <h4 class="font-semibold text-white flex items-center gap-2">
+              <i class="fas fa-keyboard"></i>
+              Keyword Search
+            </h4>
+            <p id="kw-query" class="text-sm text-white/80 mt-1 font-mono"></p>
+          </div>
+          <div class="p-4">
+            <div class="flex items-center justify-between mb-4">
+              <div>
+                <span class="text-sm text-slate-400">Results</span>
+                <p id="kw-result-count" class="text-2xl font-bold text-slate-200"></p>
+              </div>
+              <div id="kw-relevance-badge" class="px-3 py-1 rounded-full text-xs font-semibold"></div>
+            </div>
+            <div class="screenshot-container rounded-lg cursor-pointer" onclick="openModal(document.getElementById('kw-screenshot').src, 'Keyword Results')">
+              <img id="kw-screenshot" src="" alt="Keyword Results">
+            </div>
+            <div class="mt-4">
+              <h5 class="text-sm font-medium text-slate-400 mb-2">Products Shown</h5>
+              <div id="kw-products" class="flex flex-wrap gap-2">
+                <!-- Filled by JS -->
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Missed Products Alert -->
+      <div id="missed-products-card" class="hidden card border-red-500/30 bg-red-500/5 p-6">
+        <h3 class="font-semibold text-red-400 mb-3 flex items-center gap-2">
+          <i class="fas fa-exclamation-triangle"></i>
+          Products Missed by Natural Language Search
+        </h3>
+        <p class="text-slate-400 text-sm mb-4">These products appeared in keyword results but NOT in natural language results:</p>
+        <div id="missed-products-list" class="flex flex-wrap gap-2">
+          <!-- Filled by JS -->
+        </div>
+      </div>
+
+      <!-- Email Hook Card -->
+      <div id="smart-insight-card" class="card p-6">
+        <h3 class="font-semibold text-slate-200 mb-3 flex items-center gap-2">
+          <i class="fas fa-bullseye text-pink-400"></i>
+          Your Email Hook
+        </h3>
+        <blockquote id="smart-email-hook" class="text-lg text-slate-300 border-l-4 border-pink-400 pl-4 italic"></blockquote>
+        <button onclick="copySmartEmailHook()" class="mt-3 text-sm text-slate-500 hover:text-slate-300 transition">
+          <i class="fas fa-copy mr-1"></i> Copy to clipboard
+        </button>
+      </div>
+
+      <!-- All Screenshots -->
+      <div class="card overflow-hidden">
+        <button onclick="toggleSection('smart-screenshots')" class="w-full p-4 flex items-center justify-between hover:bg-slate-800/50 transition">
+          <h3 class="font-semibold text-slate-200 flex items-center gap-2">
+            <i class="fas fa-images text-violet-400"></i>
+            All Screenshots
+          </h3>
+          <i id="smart-screenshots-chevron" class="fas fa-chevron-down text-slate-500"></i>
+        </button>
+        <div id="smart-screenshots-content" class="collapsible-content open">
+          <div class="grid md:grid-cols-3 gap-4 p-4 pt-0" id="smart-screenshots-grid">
+            <!-- Filled by JS -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Raw JSON -->
+      <div class="card overflow-hidden">
+        <button onclick="toggleSection('smart-analysis')" class="w-full p-4 flex items-center justify-between hover:bg-slate-800/50 transition">
+          <h3 class="font-semibold text-slate-200 flex items-center gap-2">
+            <i class="fas fa-code text-slate-500"></i>
+            Raw API Response
+          </h3>
+          <i id="smart-analysis-chevron" class="fas fa-chevron-down text-slate-500"></i>
+        </button>
+        <div id="smart-analysis-content" class="collapsible-content">
+          <div class="p-4 pt-0">
+            <pre id="smart-raw-json" class="bg-slate-900 text-cyan-400 p-4 rounded-lg overflow-auto max-h-96 text-xs font-mono"></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Manual Mode Results Section -->
     <div id="results-section" class="hidden space-y-6">
       
       <!-- Verdict Hero Card -->
@@ -104,25 +463,25 @@
       </div>
 
       <!-- Key Insight -->
-      <div id="insight-card" class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-        <h3 class="font-semibold text-slate-900 mb-3 flex items-center gap-2">
-          <i class="fas fa-bullseye text-red-500"></i>
+      <div id="insight-card" class="card p-6">
+        <h3 class="font-semibold text-slate-200 mb-3 flex items-center gap-2">
+          <i class="fas fa-bullseye text-pink-400"></i>
           Your Email Hook
         </h3>
-        <blockquote id="email-hook" class="text-lg text-slate-700 border-l-4 border-red-500 pl-4 italic"></blockquote>
-        <button onclick="copyEmailHook()" class="mt-3 text-sm text-slate-500 hover:text-slate-700">
+        <blockquote id="email-hook" class="text-lg text-slate-300 border-l-4 border-pink-400 pl-4 italic"></blockquote>
+        <button onclick="copyEmailHook()" class="mt-3 text-sm text-slate-500 hover:text-slate-300 transition">
           <i class="fas fa-copy mr-1"></i> Copy to clipboard
         </button>
       </div>
 
       <!-- Screenshots -->
-      <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        <button onclick="toggleSection('screenshots')" class="w-full p-4 flex items-center justify-between hover:bg-slate-50 transition">
-          <h3 class="font-semibold text-slate-900 flex items-center gap-2">
-            <i class="fas fa-images text-blue-500"></i>
+      <div class="card overflow-hidden">
+        <button onclick="toggleSection('screenshots')" class="w-full p-4 flex items-center justify-between hover:bg-slate-800/50 transition">
+          <h3 class="font-semibold text-slate-200 flex items-center gap-2">
+            <i class="fas fa-images text-violet-400"></i>
             Screenshots Evidence
           </h3>
-          <i id="screenshots-chevron" class="fas fa-chevron-down text-slate-400"></i>
+          <i id="screenshots-chevron" class="fas fa-chevron-down text-slate-500"></i>
         </button>
         <div id="screenshots-content" class="collapsible-content open">
           <div class="grid md:grid-cols-3 gap-4 p-4 pt-0" id="screenshots-grid">
@@ -132,13 +491,13 @@
       </div>
 
       <!-- What Happened -->
-      <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        <button onclick="toggleSection('details')" class="w-full p-4 flex items-center justify-between hover:bg-slate-50 transition">
-          <h3 class="font-semibold text-slate-900 flex items-center gap-2">
-            <i class="fas fa-clipboard-list text-purple-500"></i>
+      <div class="card overflow-hidden">
+        <button onclick="toggleSection('details')" class="w-full p-4 flex items-center justify-between hover:bg-slate-800/50 transition">
+          <h3 class="font-semibold text-slate-200 flex items-center gap-2">
+            <i class="fas fa-clipboard-list text-violet-400"></i>
             What Happened
           </h3>
-          <i id="details-chevron" class="fas fa-chevron-down text-slate-400"></i>
+          <i id="details-chevron" class="fas fa-chevron-down text-slate-500"></i>
         </button>
         <div id="details-content" class="collapsible-content">
           <div class="p-4 pt-0 space-y-4" id="details-grid">
@@ -148,17 +507,17 @@
       </div>
 
       <!-- Full Analysis (collapsed) -->
-      <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        <button onclick="toggleSection('analysis')" class="w-full p-4 flex items-center justify-between hover:bg-slate-50 transition">
-          <h3 class="font-semibold text-slate-900 flex items-center gap-2">
+      <div class="card overflow-hidden">
+        <button onclick="toggleSection('analysis')" class="w-full p-4 flex items-center justify-between hover:bg-slate-800/50 transition">
+          <h3 class="font-semibold text-slate-200 flex items-center gap-2">
             <i class="fas fa-code text-slate-500"></i>
             Raw API Response (for Clay)
           </h3>
-          <i id="analysis-chevron" class="fas fa-chevron-down text-slate-400"></i>
+          <i id="analysis-chevron" class="fas fa-chevron-down text-slate-500"></i>
         </button>
         <div id="analysis-content" class="collapsible-content">
           <div class="p-4 pt-0">
-            <pre id="raw-json" class="bg-slate-900 text-green-400 p-4 rounded-lg overflow-auto max-h-96 text-xs"></pre>
+            <pre id="raw-json" class="bg-slate-900 text-cyan-400 p-4 rounded-lg overflow-auto max-h-96 text-xs font-mono"></pre>
           </div>
         </div>
       </div>
@@ -166,18 +525,18 @@
 
     <!-- Empty State -->
     <div id="empty-state" class="text-center py-16">
-      <div class="inline-flex items-center justify-center w-20 h-20 bg-slate-100 rounded-full mb-4">
-        <i class="fas fa-search text-3xl text-slate-400"></i>
+      <div class="inline-flex items-center justify-center w-20 h-20 bg-slate-800 rounded-full mb-4">
+        <i class="fas fa-search text-3xl text-slate-500"></i>
       </div>
-      <h3 class="text-xl font-semibold text-slate-600">Ready to analyze</h3>
-      <p class="text-slate-500 mt-2">Enter a website and natural language query to test their search</p>
+      <h3 class="text-xl font-semibold text-slate-400">Ready to analyze</h3>
+      <p class="text-slate-500 mt-2">Enter a website and query to test their search, or enable Smart Mode</p>
     </div>
   </main>
 
   <!-- Image Modal -->
-  <div id="image-modal" class="hidden fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4" onclick="closeModal(event)">
-    <div class="relative max-w-5xl w-full max-h-[90vh] overflow-auto bg-white rounded-lg">
-      <button onclick="closeModal()" class="absolute top-4 right-4 w-10 h-10 bg-white rounded-full shadow-lg flex items-center justify-center text-slate-600 hover:text-slate-900 z-10">
+  <div id="image-modal" class="hidden fixed inset-0 bg-black/90 flex items-center justify-center z-50 p-4" onclick="closeModal(event)">
+    <div class="relative max-w-5xl w-full max-h-[90vh] overflow-auto bg-slate-900 rounded-lg">
+      <button onclick="closeModal()" class="absolute top-4 right-4 w-10 h-10 bg-slate-800 rounded-full shadow-lg flex items-center justify-center text-slate-400 hover:text-white z-10 transition">
         <i class="fas fa-times"></i>
       </button>
       <img id="modal-image" src="" alt="Screenshot" class="w-full">
@@ -185,7 +544,7 @@
   </div>
 
   <!-- Toast -->
-  <div id="toast" class="fixed bottom-6 right-6 bg-slate-900 text-white px-4 py-3 rounded-lg shadow-lg transform translate-y-20 opacity-0 transition-all duration-300">
+  <div id="toast" class="fixed bottom-6 right-6 bg-slate-800 text-white px-4 py-3 rounded-lg shadow-lg transform translate-y-20 opacity-0 transition-all duration-300 border border-slate-700">
     <span id="toast-message"></span>
   </div>
 

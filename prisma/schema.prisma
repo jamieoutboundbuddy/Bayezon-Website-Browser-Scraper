@@ -1,0 +1,42 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model LlmLog {
+  id         Int      @id @default(autoincrement())
+  jobId      String   @map("job_id")
+  domain     String
+  phase      String   // reconnaissance, query_generation, evaluation
+  prompt     String   @db.Text
+  response   String   @db.Text
+  model      String
+  tokensUsed Int?     @map("tokens_used")
+  durationMs Int      @map("duration_ms")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@map("llm_logs")
+}
+
+model AnalysisResult {
+  id                Int      @id @default(autoincrement())
+  jobId             String   @unique @map("job_id")
+  domain            String
+  siteProfile       Json     @map("site_profile")
+  queriesTested     Json     @map("queries_tested")
+  comparison        Json
+  verdict           String   // OUTREACH, SKIP, REVIEW, INCONCLUSIVE
+  confidence        String   // high, medium, low
+  confidenceReasons String[] @map("confidence_reasons")
+  emailHook         String?  @map("email_hook") @db.Text
+  screenshotUrls    Json     @map("screenshot_urls")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  @@map("analysis_results")
+}
+
+

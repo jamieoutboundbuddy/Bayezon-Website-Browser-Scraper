@@ -13,9 +13,25 @@ import {
   getJob,
   cleanupOldJobs,
 } from './jobs';
-import { runSearchJourney, closeBrowser } from './search';
-import { SearchScreenshot } from './types';
-import { analyzeSearchQuality, isOpenAIConfigured, ComprehensiveAnalysis } from './analyze';
+import { runSearchJourney, runDualSearch, closeBrowser } from './search';
+import { 
+  SearchScreenshot, 
+  SmartAnalysisResult, 
+  SiteProfile, 
+  TestQueries, 
+  ComparisonAnalysis, 
+  Confidence 
+} from './types';
+import { analyzeSearchQuality, evaluateSearchComparison, isOpenAIConfigured, ComprehensiveAnalysis } from './analyze';
+import { analyzeSite } from './reconnaissance';
+import { generateTestQueries } from './queryGenerator';
+import { getDb } from './db';
+import { 
+  getArtifactPath, 
+  getArtifactUrl, 
+  normalizeDomain, 
+  getDomainName 
+} from './utils';
 
 dotenv.config();
 
@@ -86,6 +102,92 @@ function screenshotToBase64(screenshotUrl: string): string | null {
     console.error('Error converting screenshot to base64:', e);
   }
   return null;
+}
+
+/**
+ * Read a screenshot file and return raw base64 (no data URL prefix)
+ */
+function readScreenshotAsBase64(screenshotPath: string): string {
+  try {
+    if (fs.existsSync(screenshotPath)) {
+      const imageBuffer = fs.readFileSync(screenshotPath);
+      return imageBuffer.toString('base64');
+    }
+  } catch (e) {
+    console.error('Error reading screenshot as base64:', e);
+  }
+  return '';
+}
+
+/**
+ * Get the base URL from a request for building full screenshot URLs
+ */
+function getBaseUrl(req: Request): string {
+  const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+  const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost:3000';
+  return `${protocol}://${host}`;
+}
+
+/**
+ * Calculate confidence level based on query generation and comparison results
+ */
+function calculateConfidence(
+  queries: TestQueries,
+  comparison: ComparisonAnalysis,
+  siteProfile: SiteProfile
+): Confidence {
+  const reasons: string[] = [];
+  let confidenceScore = 0;
+  
+  // Higher confidence if queries based on visible products/categories
+  if (queries.queryBasis === 'visible_product') {
+    confidenceScore += 30;
+    reasons.push('Queries based on visible products');
+  } else if (queries.queryBasis === 'visible_category') {
+    confidenceScore += 20;
+    reasons.push('Queries based on visible categories');
+  } else {
+    confidenceScore += 5;
+    reasons.push('Queries inferred from industry');
+  }
+  
+  // Higher confidence if we got clear results from both searches
+  if (comparison.nlResultCount !== null && comparison.nlResultCount > 0) {
+    confidenceScore += 15;
+    reasons.push('NL search returned results');
+  }
+  if (comparison.kwResultCount !== null && comparison.kwResultCount > 0) {
+    confidenceScore += 15;
+    reasons.push('Keyword search returned results');
+  }
+  
+  // Higher confidence if verdict is clear (OUTREACH or SKIP vs REVIEW/INCONCLUSIVE)
+  if (comparison.verdict === 'OUTREACH' || comparison.verdict === 'SKIP') {
+    confidenceScore += 20;
+    reasons.push('Clear verdict from comparison');
+  }
+  
+  // Higher confidence if we have a good understanding of the catalog
+  if (siteProfile.visibleProducts.length >= 3) {
+    confidenceScore += 10;
+    reasons.push('Multiple products visible on homepage');
+  }
+  if (siteProfile.visibleCategories.length >= 3) {
+    confidenceScore += 10;
+    reasons.push('Multiple categories visible in navigation');
+  }
+  
+  // Determine confidence level
+  let level: 'high' | 'medium' | 'low';
+  if (confidenceScore >= 70) {
+    level = 'high';
+  } else if (confidenceScore >= 40) {
+    level = 'medium';
+  } else {
+    level = 'low';
+  }
+  
+  return { level, reasons };
 }
 
 /**
@@ -320,8 +422,181 @@ app.get('/api/config', (req: Request, res: Response) => {
       async_search: true,
       base64_screenshots: true,
       ai_analysis: isOpenAIConfigured(),
+      smart_analysis: isOpenAIConfigured(),
     },
   });
+});
+
+/**
+ * POST /api/analyze - Smart SDR analysis (domain only)
+ * Analyzes an e-commerce site's search quality using AI
+ * Body: { domain: string }
+ * Returns: SmartAnalysisResult
+ */
+app.post('/api/analyze', async (req: Request, res: Response) => {
+  const { domain } = req.body;
+  
+  if (!domain) {
+    return res.status(400).json({ error: 'domain is required' });
+  }
+  
+  // Check if OpenAI is configured (required for smart analysis)
+  if (!isOpenAIConfigured()) {
+    return res.status(400).json({ 
+      error: 'OpenAI API key not configured. Set OPENAI_API_KEY environment variable.',
+      hint: 'Smart analysis requires OpenAI for site reconnaissance and evaluation'
+    });
+  }
+  
+  const startTime = Date.now();
+  const jobId = createJob(domain, 'smart-analysis');
+  const normalizedDomain = normalizeDomain(domain);
+  const domainName = getDomainName(normalizedDomain);
+  
+  try {
+    console.log(`[SMART] Starting analysis for: ${domain}`);
+    
+    // Phase 1: Capture homepage and analyze
+    console.log(`[SMART] Phase 1: Reconnaissance`);
+    
+    // Run dual search to get the homepage screenshot
+    // We'll use a minimal query just to capture the homepage
+    const dummyQueries: TestQueries = {
+      naturalLanguageQuery: '',
+      keywordQuery: '',
+      queryBasis: 'inferred',
+      expectedBehavior: ''
+    };
+    
+    // Actually, we need to first capture the homepage to analyze it
+    // Let's do the analysis in the correct order:
+    // 1. Run a search journey just to get the homepage screenshot
+    // 2. Analyze the homepage
+    // 3. Generate queries based on analysis
+    // 4. Run dual search with those queries
+    // 5. Evaluate results
+    
+    // For phase 1, we need to capture the homepage first
+    // We'll use the runDualSearch function but we need the homepage screenshot first
+    // Let's actually do a simpler approach: use runSearchJourney with a simple query to get the homepage
+    
+    const tempResult = await runSearchJourney(jobId + '-recon', domain, 'test');
+    
+    // Find the homepage screenshot
+    const homepageScreenshot = tempResult.screenshots.find(s => s.stage === 'homepage');
+    if (!homepageScreenshot) {
+      return res.status(500).json({ 
+        error: 'Failed to capture homepage screenshot',
+        jobId 
+      });
+    }
+    
+    // Read homepage as base64
+    const homepagePath = path.join(process.cwd(), homepageScreenshot.screenshotUrl);
+    const homepageBase64 = readScreenshotAsBase64(homepagePath);
+    
+    if (!homepageBase64) {
+      return res.status(500).json({ 
+        error: 'Failed to read homepage screenshot',
+        jobId 
+      });
+    }
+    
+    // Analyze the site
+    const siteProfile = await analyzeSite(jobId, domain, homepageBase64);
+    
+    // Check for login wall / no search
+    if (!siteProfile.hasSearch) {
+      console.log(`[SMART] No search functionality detected on ${domain}`);
+      return res.json({
+        jobId,
+        domain,
+        verdict: 'INCONCLUSIVE',
+        reason: 'No search functionality detected',
+        siteProfile,
+        durationMs: Date.now() - startTime
+      });
+    }
+    
+    // Phase 2: Generate queries
+    console.log(`[SMART] Phase 2: Query Generation`);
+    const queries = await generateTestQueries(jobId, domain, siteProfile, homepageBase64);
+    
+    // Phase 3: Execute dual search
+    console.log(`[SMART] Phase 3: Dual Search`);
+    const searchResults = await runDualSearch(jobId, domain, queries);
+    
+    // Phase 4: Evaluate
+    console.log(`[SMART] Phase 4: Evaluation`);
+    const nlBase64 = readScreenshotAsBase64(searchResults.naturalLanguage.screenshotPath);
+    const kwBase64 = readScreenshotAsBase64(searchResults.keyword.screenshotPath);
+    
+    if (!nlBase64 || !kwBase64) {
+      return res.status(500).json({ 
+        error: 'Failed to read search result screenshots',
+        jobId 
+      });
+    }
+    
+    const { comparison, emailHook } = await evaluateSearchComparison(
+      jobId, domain, queries, nlBase64, kwBase64, siteProfile
+    );
+    
+    // Calculate confidence
+    const confidence = calculateConfidence(queries, comparison, siteProfile);
+    
+    // Build screenshot URLs
+    const baseUrl = getBaseUrl(req);
+    const screenshotUrls: Record<string, string> = {
+      homepage: `${baseUrl}${getArtifactUrl(jobId, domainName, 'homepage')}`,
+      results_nl: `${baseUrl}${getArtifactUrl(jobId, domainName, 'results_nl')}`,
+      results_kw: `${baseUrl}${getArtifactUrl(jobId, domainName, 'results_kw')}`
+    };
+    
+    // Save to database
+    try {
+      await getDb().analysisResult.create({
+        data: {
+          jobId,
+          domain,
+          siteProfile: siteProfile as any,
+          queriesTested: queries as any,
+          comparison: comparison as any,
+          verdict: comparison.verdict,
+          confidence: confidence.level,
+          confidenceReasons: confidence.reasons,
+          emailHook,
+          screenshotUrls: screenshotUrls as any
+        }
+      });
+      console.log(`[SMART] Results saved to database`);
+    } catch (dbError) {
+      console.error(`[SMART] Failed to save to database:`, dbError);
+      // Continue anyway - don't fail the request just because DB save failed
+    }
+    
+    const result: SmartAnalysisResult = {
+      jobId,
+      domain,
+      siteProfile,
+      queriesTested: queries,
+      comparison,
+      confidence,
+      emailHook,
+      screenshotUrls,
+      durationMs: Date.now() - startTime
+    };
+    
+    console.log(`[SMART] Completed: ${comparison.verdict} (${confidence.level} confidence) in ${result.durationMs}ms`);
+    res.json(result);
+    
+  } catch (error: any) {
+    console.error(`[SMART] Error:`, error);
+    res.status(500).json({ 
+      error: error.message || 'Smart analysis failed',
+      jobId 
+    });
+  }
 });
 
 /**

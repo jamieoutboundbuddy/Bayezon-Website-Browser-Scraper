@@ -1,92 +1,26 @@
-/* Custom CSS for Website Search Tool */
+/* Custom CSS for Search Quality Analyzer */
 
 :root {
-  /* Brand Colors */
-  --ob-primary: #2563eb;
-  --ob-accent: #3b82f6;
-  --ob-gradient-start: #4f46e5; /* Indigo */
-  --ob-gradient-end: #60a5fa; /* Sky blue */
-  --ob-dark: #1e293b;
+  /* Brand Colors - Dark Theme */
+  --accent-cyan: #22d3ee;
+  --accent-violet: #a78bfa;
+  --accent-pink: #f472b6;
+  --bg-dark: #0f0f1a;
+  --bg-card: #1a1a2e;
+  --bg-card-hover: #242442;
+  --text-primary: #f8fafc;
+  --text-secondary: #94a3b8;
+  --border-subtle: rgba(148, 163, 184, 0.1);
   
-  /* Standard colors */
-  --primary-blue: #2563eb;
-  --accent-blue: #3b82f6;
+  /* Status colors */
   --success-green: #10b981;
   --error-red: #ef4444;
   --warning-yellow: #f59e0b;
-  --slate-50: #f8fafc;
-  --slate-100: #f1f5f9;
-  --slate-200: #e2e8f0;
-  --slate-300: #cbd5e1;
-  --slate-600: #475569;
-  --slate-900: #0f172a;
-}
-
-/* Header */
-.outbound-header {
-  background: linear-gradient(135deg, var(--ob-gradient-start) 0%, var(--ob-gradient-end) 100%);
-  border-radius: 0 0 1rem 1rem;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-  margin-bottom: 2rem;
-}
-
-.outbound-title {
-  font-size: 2.5rem;
-  font-weight: 800;
-  color: white;
-  margin: 0;
-  letter-spacing: -0.5px;
-  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-}
-
-.outbound-subtitle {
-  font-size: 1.1rem;
-  color: rgba(255, 255, 255, 0.95);
-  margin: 0.5rem 0 0 0;
-  font-weight: 400;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
-}
-
-/* Buttons */
-.ob-button-primary {
-  padding: 0.75rem 1.5rem;
-  background: linear-gradient(135deg, var(--ob-gradient-start), var(--ob-gradient-end));
-  color: white;
-  font-weight: 600;
-  border-radius: 0.5rem;
-  border: none;
-  transition: all 0.3s ease;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  cursor: pointer;
-  box-shadow: 0 2px 4px rgba(79, 70, 229, 0.3);
-  font-size: 1rem;
-}
-
-.ob-button-primary:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 8px rgba(79, 70, 229, 0.4);
-  background: linear-gradient(135deg, #4338ca, #3b82f6);
-}
-
-.ob-button-primary:active {
-  transform: translateY(0);
-  box-shadow: 0 2px 4px rgba(79, 70, 229, 0.3);
-}
-
-.ob-button-primary i {
-  font-size: 0.9rem;
 }
 
 /* Progress Bar */
-.ob-progress-bar {
-  background: linear-gradient(90deg, var(--ob-gradient-start), var(--ob-gradient-end));
-  box-shadow: 0 2px 4px rgba(79, 70, 229, 0.3);
-}
-
 #progress-bar {
-  box-shadow: 0 0 10px rgba(37, 99, 235, 0.5);
+  box-shadow: 0 0 10px rgba(34, 211, 238, 0.5);
 }
 
 /* Screenshot Preview */
@@ -94,7 +28,7 @@
   width: 100%;
   height: 300px;
   overflow: hidden;
-  background: var(--slate-50);
+  background: var(--bg-dark);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -113,14 +47,14 @@
 
 /* Toast Notifications */
 .toast {
-  animation: slideInDown 0.3s ease;
+  animation: slideInUp 0.3s ease;
   margin-bottom: 0.5rem;
 }
 
-@keyframes slideInDown {
+@keyframes slideInUp {
   from {
     opacity: 0;
-    transform: translateY(-20px);
+    transform: translateY(20px);
   }
   to {
     opacity: 1;
@@ -137,14 +71,14 @@
 }
 
 .toast.info {
-  background: var(--primary-blue);
+  background: var(--accent-cyan);
 }
 
 .toast-content {
   color: white;
   padding: 1rem 1.5rem;
   border-radius: 0.5rem;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
   display: flex;
   align-items: center;
   gap: 0.75rem;
@@ -166,16 +100,13 @@
 
 /* Responsive */
 @media (max-width: 768px) {
-  .outbound-title {
-    font-size: 1.75rem;
-  }
-
-  .outbound-subtitle {
-    font-size: 0.95rem;
-  }
-
-  #screenshots-container {
+  #screenshots-container,
+  #smart-screenshots-grid {
     grid-template-columns: 1fr;
+  }
+  
+  .comparison-card {
+    margin-bottom: 1rem;
   }
 }
 
@@ -185,4 +116,74 @@ button:disabled {
   cursor: not-allowed;
 }
 
+/* Scrollbar styling for dark theme */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
 
+::-webkit-scrollbar-track {
+  background: var(--bg-dark);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-subtle);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.3);
+}
+
+/* Code block styling */
+pre {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-subtle) var(--bg-dark);
+}
+
+/* Focus styles for accessibility */
+input:focus,
+button:focus {
+  outline: none;
+}
+
+input:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--accent-cyan);
+  outline-offset: 2px;
+}
+
+/* Smooth transitions */
+* {
+  transition-property: color, background-color, border-color;
+  transition-duration: 150ms;
+  transition-timing-function: ease;
+}
+
+/* Except for elements that need instant response */
+button,
+a,
+input {
+  transition-property: color, background-color, border-color, transform, box-shadow;
+}
+
+/* Animation for loading states */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.loading-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--bg-card) 0%,
+    var(--bg-card-hover) 50%,
+    var(--bg-card) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
