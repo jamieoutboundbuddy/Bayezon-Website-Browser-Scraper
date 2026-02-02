@@ -13,19 +13,15 @@ import {
   getJob,
   cleanupOldJobs,
 } from './jobs';
-import { runSearchJourney, runDualSearch, closeBrowser } from './search';
+import { closeBrowser } from './search';
 import { 
-  SearchScreenshot, 
   SmartAnalysisResult, 
   SiteProfile, 
   TestQueries, 
   ComparisonAnalysis, 
   Confidence 
 } from './types';
-import { analyzeSearchQuality, evaluateSearchComparison, isOpenAIConfigured, ComprehensiveAnalysis } from './analyze';
-import { analyzeSite } from './reconnaissance';
-import { generateTestQueries } from './queryGenerator';
-import { getDb } from './db';
+import { isOpenAIConfigured } from './analyze';
 import { aiFullAnalysis } from './aiAgent';
 import { 
   getArtifactPath, 
@@ -44,6 +40,15 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static('public'));
 app.use('/artifacts', express.static('artifacts'));
+
+/**
+ * Get the base URL from a request for building full screenshot URLs
+ */
+function getBaseUrl(req: Request): string {
+  const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+  const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost:3000';
+  return `${protocol}://${host}`;
+}
 
 /**
  * Health check endpoint
@@ -86,157 +91,6 @@ app.post('/api/search', (req: Request, res: Response) => {
     res.status(500).json({ error: error.message || 'Internal server error' });
   }
 });
-
-/**
- * Convert screenshot URL to base64 data URL for OpenAI
- */
-function screenshotToBase64(screenshotUrl: string): string | null {
-  try {
-    // Convert URL path to file path
-    const filePath = path.join(process.cwd(), screenshotUrl);
-    if (fs.existsSync(filePath)) {
-      const imageBuffer = fs.readFileSync(filePath);
-      const base64 = imageBuffer.toString('base64');
-      return `data:image/jpeg;base64,${base64}`;
-    }
-  } catch (e) {
-    console.error('Error converting screenshot to base64:', e);
-  }
-  return null;
-}
-
-/**
- * Read a screenshot file and return raw base64 (no data URL prefix)
- */
-function readScreenshotAsBase64(screenshotPath: string): string {
-  try {
-    if (fs.existsSync(screenshotPath)) {
-      const imageBuffer = fs.readFileSync(screenshotPath);
-      return imageBuffer.toString('base64');
-    }
-  } catch (e) {
-    console.error('Error reading screenshot as base64:', e);
-  }
-  return '';
-}
-
-/**
- * Get the base URL from a request for building full screenshot URLs
- */
-function getBaseUrl(req: Request): string {
-  const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
-  const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost:3000';
-  return `${protocol}://${host}`;
-}
-
-/**
- * Calculate confidence level based on query generation and comparison results
- */
-function calculateConfidence(
-  queries: TestQueries,
-  comparison: ComparisonAnalysis,
-  siteProfile: SiteProfile
-): Confidence {
-  const reasons: string[] = [];
-  let confidenceScore = 0;
-  
-  // Higher confidence if queries based on visible products/categories
-  if (queries.queryBasis === 'visible_product') {
-    confidenceScore += 30;
-    reasons.push('Queries based on visible products');
-  } else if (queries.queryBasis === 'visible_category') {
-    confidenceScore += 20;
-    reasons.push('Queries based on visible categories');
-  } else {
-    confidenceScore += 5;
-    reasons.push('Queries inferred from industry');
-  }
-  
-  // Higher confidence if we got clear results from both searches
-  if (comparison.nlResultCount !== null && comparison.nlResultCount > 0) {
-    confidenceScore += 15;
-    reasons.push('NL search returned results');
-  }
-  if (comparison.kwResultCount !== null && comparison.kwResultCount > 0) {
-    confidenceScore += 15;
-    reasons.push('Keyword search returned results');
-  }
-  
-  // Higher confidence if verdict is clear (OUTREACH or SKIP vs REVIEW/INCONCLUSIVE)
-  if (comparison.verdict === 'OUTREACH' || comparison.verdict === 'SKIP') {
-    confidenceScore += 20;
-    reasons.push('Clear verdict from comparison');
-  }
-  
-  // Higher confidence if we have a good understanding of the catalog
-  if (siteProfile.visibleProducts.length >= 3) {
-    confidenceScore += 10;
-    reasons.push('Multiple products visible on homepage');
-  }
-  if (siteProfile.visibleCategories.length >= 3) {
-    confidenceScore += 10;
-    reasons.push('Multiple categories visible in navigation');
-  }
-  
-  // Determine confidence level
-  let level: 'high' | 'medium' | 'low';
-  if (confidenceScore >= 70) {
-    level = 'high';
-  } else if (confidenceScore >= 40) {
-    level = 'medium';
-  } else {
-    level = 'low';
-  }
-  
-  return { level, reasons };
-}
-
-/**
- * Format screenshots for OpenAI Vision API
- */
-interface OpenAIImageContent {
-  type: 'image_url';
-  image_url: {
-    url: string;
-    detail?: 'low' | 'high' | 'auto';
-  };
-}
-
-interface ScreenshotWithBase64 extends SearchScreenshot {
-  base64?: string;
-  openai_format?: OpenAIImageContent;
-}
-
-function formatScreenshotsForOpenAI(screenshots: SearchScreenshot[], baseUrl?: string): ScreenshotWithBase64[] {
-  return screenshots.map(screenshot => {
-    const base64 = screenshotToBase64(screenshot.screenshotUrl);
-    const result: ScreenshotWithBase64 = {
-      ...screenshot,
-    };
-    
-    if (base64) {
-      result.base64 = base64;
-      result.openai_format = {
-        type: 'image_url',
-        image_url: {
-          url: base64,
-          detail: 'high',
-        },
-      };
-    } else if (baseUrl) {
-      // Fallback to URL if base64 fails
-      result.openai_format = {
-        type: 'image_url',
-        image_url: {
-          url: `${baseUrl}${screenshot.screenshotUrl}`,
-          detail: 'high',
-        },
-      };
-    }
-    
-    return result;
-  });
-}
 
 /**
  * GET /api/search/:jobId - Get search status & results
@@ -429,8 +283,8 @@ app.get('/api/config', (req: Request, res: Response) => {
 });
 
 /**
- * POST /api/analyze - Smart SDR analysis (domain only)
- * Analyzes an e-commerce site's search quality using AI
+ * POST /api/analyze - Smart SDR analysis with AI Agent (domain only)
+ * Analyzes an e-commerce site's search quality using Stagehand + GPT-5-mini
  * Body: { domain: string }
  * Returns: SmartAnalysisResult
  */
@@ -445,7 +299,7 @@ app.post('/api/analyze', async (req: Request, res: Response) => {
   if (!isOpenAIConfigured()) {
     return res.status(400).json({ 
       error: 'OpenAI API key not configured. Set OPENAI_API_KEY environment variable.',
-      hint: 'Smart analysis requires OpenAI for site reconnaissance and evaluation'
+      hint: 'Smart analysis requires OpenAI for AI-powered browser control'
     });
   }
   
@@ -455,81 +309,13 @@ app.post('/api/analyze', async (req: Request, res: Response) => {
   const domainName = getDomainName(normalizedDomain);
   
   try {
-    console.log(`[SMART] Starting analysis for: ${domain}`);
+    console.log(`\n[ANALYZE] ========================================`);
+    console.log(`[ANALYZE] Starting AI-powered Smart analysis for: ${domain}`);
+    console.log(`[ANALYZE] Job ID: ${jobId}`);
+    console.log(`[ANALYZE] ========================================\n`);
     
-    // Phase 1: Capture homepage and analyze using runDualSearch
-    // This creates ONE browser session and does everything in a single pass
-    console.log(`[SMART] Phase 1: Reconnaissance (capturing homepage)`);
-    
-    // First, we need to capture just the homepage to analyze it
-    // We'll do a minimal search journey that just gets the homepage
-    const tempResult = await runSearchJourney(jobId + '-recon', domain, 'test');
-    
-    // Find the homepage screenshot
-    const homepageScreenshot = tempResult.screenshots.find(s => s.stage === 'homepage');
-    if (!homepageScreenshot) {
-      return res.status(500).json({ 
-        error: 'Failed to capture homepage screenshot',
-        jobId 
-      });
-    }
-    
-    // Read homepage as base64
-    const homepagePath = path.join(process.cwd(), homepageScreenshot.screenshotUrl);
-    const homepageBase64 = readScreenshotAsBase64(homepagePath);
-    
-    if (!homepageBase64) {
-      return res.status(500).json({ 
-        error: 'Failed to read homepage screenshot',
-        jobId 
-      });
-    }
-    
-    // Analyze the site
-    const siteProfile = await analyzeSite(jobId, domain, homepageBase64);
-    
-    // Check for login wall / no search
-    if (!siteProfile.hasSearch) {
-      console.log(`[SMART] No search functionality detected on ${domain}`);
-      return res.json({
-        jobId,
-        domain,
-        verdict: 'INCONCLUSIVE',
-        reason: 'No search functionality detected',
-        siteProfile,
-        durationMs: Date.now() - startTime
-      });
-    }
-    
-    // Phase 2: Generate queries
-    console.log(`[SMART] Phase 2: Query Generation`);
-    const queries = await generateTestQueries(jobId, domain, siteProfile, homepageBase64);
-    
-    // Phase 3: Execute dual search
-    // IMPORTANT: Wait a bit for the previous Browserbase session to fully close
-    console.log(`[SMART] Phase 3: Dual Search (waiting for previous session to close...)`);
-    await new Promise(resolve => setTimeout(resolve, 3000)); // Wait 3 seconds
-    
-    const searchResults = await runDualSearch(jobId, domain, queries);
-    
-    // Phase 4: Evaluate
-    console.log(`[SMART] Phase 4: Evaluation`);
-    const nlBase64 = readScreenshotAsBase64(searchResults.naturalLanguage.screenshotPath);
-    const kwBase64 = readScreenshotAsBase64(searchResults.keyword.screenshotPath);
-    
-    if (!nlBase64 || !kwBase64) {
-      return res.status(500).json({ 
-        error: 'Failed to read search result screenshots',
-        jobId 
-      });
-    }
-    
-    const { comparison, emailHook } = await evaluateSearchComparison(
-      jobId, domain, queries, nlBase64, kwBase64, siteProfile
-    );
-    
-    // Calculate confidence
-    const confidence = calculateConfidence(queries, comparison, siteProfile);
+    // Use AI Agent (Stagehand) for the entire analysis - this works on ANY website
+    const aiResult = await aiFullAnalysis(jobId, domain);
     
     // Build screenshot URLs
     const baseUrl = getBaseUrl(req);
@@ -537,6 +323,48 @@ app.post('/api/analyze', async (req: Request, res: Response) => {
       homepage: `${baseUrl}${getArtifactUrl(jobId, domainName, 'homepage')}`,
       results_nl: `${baseUrl}${getArtifactUrl(jobId, domainName, 'results_nl')}`,
       results_kw: `${baseUrl}${getArtifactUrl(jobId, domainName, 'results_kw')}`
+    };
+    
+    // Convert AI Agent result to SmartAnalysisResult format
+    const siteProfile: SiteProfile = {
+      company: aiResult.siteProfile.companyName,
+      industry: aiResult.siteProfile.industry,
+      visibleProducts: [],
+      visibleCategories: aiResult.siteProfile.visibleCategories,
+      estimatedCatalogSize: 'medium',
+      hasSearch: aiResult.siteProfile.hasSearch,
+      searchType: aiResult.siteProfile.searchType
+    };
+    
+    const comparison: ComparisonAnalysis = {
+      nlResultCount: aiResult.searchResults.naturalLanguage.resultCount,
+      nlRelevance: aiResult.comparison.nlRelevance,
+      nlProductsShown: aiResult.searchResults.naturalLanguage.productsFound,
+      kwResultCount: aiResult.searchResults.keyword.resultCount,
+      kwRelevance: aiResult.comparison.kwRelevance,
+      kwProductsShown: aiResult.searchResults.keyword.productsFound,
+      missedProducts: [],
+      verdict: aiResult.comparison.verdict,
+      verdictReason: aiResult.comparison.reason
+    };
+    
+    const queries: TestQueries = {
+      naturalLanguageQuery: aiResult.nlQuery,
+      keywordQuery: aiResult.kwQuery,
+      queryBasis: 'ai-generated',
+      expectedBehavior: 'AI-determined based on site analysis'
+    };
+    
+    const confidence = {
+      level: (aiResult.searchResults.naturalLanguage.searchSuccess && aiResult.searchResults.keyword.searchSuccess) 
+        ? 'high' as const 
+        : 'medium' as const,
+      reasons: [
+        `AI successfully navigated ${domain}`,
+        `Search type detected: ${aiResult.siteProfile.searchType}`,
+        `NL search: ${aiResult.searchResults.naturalLanguage.searchSuccess ? 'success' : 'failed'}`,
+        `KW search: ${aiResult.searchResults.keyword.searchSuccess ? 'success' : 'failed'}`,
+      ]
     };
     
     // Save to database (optional - don't fail if DB not available)
@@ -553,14 +381,14 @@ app.post('/api/analyze', async (req: Request, res: Response) => {
             verdict: comparison.verdict,
             confidence: confidence.level,
             confidenceReasons: confidence.reasons,
-            emailHook,
+            emailHook: null,
             screenshotUrls: screenshotUrls as any
           }
         });
-        console.log(`[SMART] Results saved to database`);
+        console.log(`[ANALYZE] Results saved to database`);
       }
     } catch (dbError) {
-      console.error(`[SMART] Failed to save to database (continuing anyway):`, dbError);
+      console.error(`[ANALYZE] Failed to save to database (continuing anyway):`, dbError);
       // Continue anyway - don't fail the request just because DB save failed
     }
     
@@ -571,119 +399,22 @@ app.post('/api/analyze', async (req: Request, res: Response) => {
       queriesTested: queries,
       comparison,
       confidence,
-      emailHook,
+      emailHook: null,
       screenshotUrls,
       durationMs: Date.now() - startTime
     };
     
-    console.log(`[SMART] Completed: ${comparison.verdict} (${confidence.level} confidence) in ${result.durationMs}ms`);
+    console.log(`\n[ANALYZE] ========================================`);
+    console.log(`[ANALYZE] Completed in ${result.durationMs}ms`);
+    console.log(`[ANALYZE] Verdict: ${comparison.verdict}`);
+    console.log(`[ANALYZE] ========================================\n`);
+    
     res.json(result);
     
   } catch (error: any) {
-    console.error(`[SMART] Error:`, error);
+    console.error(`[ANALYZE] Error:`, error);
     res.status(500).json({ 
       error: error.message || 'Smart analysis failed',
-      jobId 
-    });
-  }
-});
-
-/**
- * POST /api/ai-analyze - AI-powered autonomous analysis
- * Uses Stagehand for intelligent, adaptive browser control
- * Body: { domain: string }
- * Returns: AI-powered analysis results
- */
-app.post('/api/ai-analyze', async (req: Request, res: Response) => {
-  const { domain } = req.body;
-  
-  if (!domain) {
-    return res.status(400).json({ error: 'domain is required' });
-  }
-  
-  // Check if OpenAI is configured (required for AI analysis)
-  if (!isOpenAIConfigured()) {
-    return res.status(400).json({ 
-      error: 'OpenAI API key not configured. Set OPENAI_API_KEY environment variable.',
-      hint: 'AI analysis requires OpenAI for vision-based browser control'
-    });
-  }
-  
-  const startTime = Date.now();
-  const jobId = createJob(domain, 'ai-analysis');
-  const normalizedDomain = normalizeDomain(domain);
-  const domainName = getDomainName(normalizedDomain);
-  
-  try {
-    console.log(`\n[AI-ANALYZE] ========================================`);
-    console.log(`[AI-ANALYZE] Starting AI-powered analysis for: ${domain}`);
-    console.log(`[AI-ANALYZE] Job ID: ${jobId}`);
-    console.log(`[AI-ANALYZE] ========================================\n`);
-    
-    // Run the full AI-powered analysis
-    const result = await aiFullAnalysis(jobId, domain);
-    
-    // Build screenshot URLs
-    const baseUrl = getBaseUrl(req);
-    const screenshotUrls: Record<string, string> = {
-      homepage: `${baseUrl}${getArtifactUrl(jobId, domainName, 'homepage')}`,
-      results_nl: `${baseUrl}${getArtifactUrl(jobId, domainName, 'results_nl')}`,
-      results_kw: `${baseUrl}${getArtifactUrl(jobId, domainName, 'results_kw')}`
-    };
-    
-    const response = {
-      jobId,
-      domain,
-      mode: 'ai-autonomous',
-      siteProfile: {
-        companyName: result.siteProfile.companyName,
-        industry: result.siteProfile.industry,
-        hasSearch: result.siteProfile.hasSearch,
-        searchType: result.siteProfile.searchType,
-        visibleCategories: result.siteProfile.visibleCategories,
-        aiObservations: result.siteProfile.aiObservations,
-      },
-      queriesTested: {
-        naturalLanguageQuery: result.nlQuery,
-        keywordQuery: result.kwQuery,
-        queryBasis: 'ai-generated',
-        expectedBehavior: 'AI-determined based on site analysis',
-      },
-      comparison: {
-        nlRelevance: result.comparison.nlRelevance,
-        kwRelevance: result.comparison.kwRelevance,
-        verdict: result.comparison.verdict,
-        reason: result.comparison.reason,
-        nlProductsFound: result.searchResults.naturalLanguage.productsFound,
-        kwProductsFound: result.searchResults.keyword.productsFound,
-        nlObservations: result.searchResults.naturalLanguage.aiObservations,
-        kwObservations: result.searchResults.keyword.aiObservations,
-      },
-      confidence: {
-        level: result.searchResults.naturalLanguage.searchSuccess && result.searchResults.keyword.searchSuccess 
-          ? 'high' : 'medium',
-        reasons: [
-          `AI successfully navigated ${domain}`,
-          `Search type detected: ${result.siteProfile.searchType}`,
-          `NL search: ${result.searchResults.naturalLanguage.searchSuccess ? 'success' : 'failed'}`,
-          `KW search: ${result.searchResults.keyword.searchSuccess ? 'success' : 'failed'}`,
-        ]
-      },
-      screenshotUrls,
-      durationMs: Date.now() - startTime
-    };
-    
-    console.log(`\n[AI-ANALYZE] ========================================`);
-    console.log(`[AI-ANALYZE] Completed in ${response.durationMs}ms`);
-    console.log(`[AI-ANALYZE] Verdict: ${response.comparison.verdict}`);
-    console.log(`[AI-ANALYZE] ========================================\n`);
-    
-    res.json(response);
-    
-  } catch (error: any) {
-    console.error(`[AI-ANALYZE] Error:`, error);
-    res.status(500).json({ 
-      error: error.message || 'AI analysis failed',
       jobId,
       hint: 'Check that OPENAI_API_KEY and BROWSERBASE credentials are correct'
     });

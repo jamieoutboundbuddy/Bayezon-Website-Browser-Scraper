@@ -325,7 +325,7 @@ Be specific and use actual product names and details from the screenshots. The s
   try {
     const openai = getOpenAIClient();
     const response = await openai.chat.completions.create({
-      model: 'gpt-4o',
+      model: 'gpt-5-mini',
       messages: [
         { role: 'system', content: systemPrompt },
         {
@@ -528,7 +528,7 @@ Respond with this JSON structure only:
 
   const openai = getOpenAIClient();
   const response = await openai.chat.completions.create({
-    model: 'gpt-4o',
+    model: 'gpt-5-mini',
     messages: [
       {
         role: 'user',
@@ -557,7 +557,7 @@ Respond with this JSON structure only:
           phase: 'evaluation',
           prompt,
           response: content,
-          model: 'gpt-4o',
+          model: 'gpt-5-mini',
           tokensUsed: response.usage?.total_tokens,
           durationMs
         }

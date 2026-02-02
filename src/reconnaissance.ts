@@ -88,7 +88,7 @@ Return JSON only:
 
   const openai = getOpenAIClient();
   const response = await openai.chat.completions.create({
-    model: 'gpt-4o',
+    model: 'gpt-5-mini',
     messages: [
       {
         role: 'user',
@@ -122,7 +122,7 @@ Return JSON only:
           phase: 'reconnaissance',
           prompt,
           response: content,
-          model: 'gpt-4o',
+          model: 'gpt-5-mini',
           tokensUsed: response.usage?.total_tokens ?? null,
           durationMs
         }

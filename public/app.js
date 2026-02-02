@@ -4,7 +4,6 @@
 
 let currentData = null;
 let isSmartMode = false;
-let isAIAgentMode = false;
 
 /**
  * Toggle Smart Mode on/off
@@ -15,10 +14,8 @@ function toggleSmartMode() {
   const badge = document.getElementById('smart-mode-badge');
   const queryContainer = document.getElementById('query-input-container');
   const aiToggleContainer = document.getElementById('ai-toggle-container');
-  const aiAgentToggleContainer = document.getElementById('ai-agent-toggle-container');
   const manualTip = document.getElementById('manual-tip');
   const smartTip = document.getElementById('smart-tip');
-  const aiAgentTip = document.getElementById('ai-agent-tip');
   const searchBtnText = document.getElementById('search-btn-text');
 
   toggle.classList.toggle('active', isSmartMode);
@@ -27,52 +24,15 @@ function toggleSmartMode() {
   if (isSmartMode) {
     queryContainer.classList.add('hidden');
     aiToggleContainer.classList.add('hidden');
-    aiAgentToggleContainer.classList.remove('hidden'); // Show AI Agent toggle
     manualTip.classList.add('hidden');
     smartTip.classList.remove('hidden');
-    aiAgentTip.classList.add('hidden');
-    searchBtnText.textContent = isAIAgentMode ? 'Run AI Agent Analysis' : 'Run Smart Analysis';
+    searchBtnText.textContent = 'Run Smart Analysis';
   } else {
     queryContainer.classList.remove('hidden');
     aiToggleContainer.classList.remove('hidden');
-    aiAgentToggleContainer.classList.add('hidden'); // Hide AI Agent toggle
     manualTip.classList.remove('hidden');
     smartTip.classList.add('hidden');
-    aiAgentTip.classList.add('hidden');
     searchBtnText.textContent = 'Analyze Search Quality';
-    // Reset AI Agent mode when exiting Smart Mode
-    if (isAIAgentMode) {
-      isAIAgentMode = false;
-      document.getElementById('ai-agent-toggle').classList.remove('active');
-      document.getElementById('ai-agent-badge').classList.add('hidden');
-    }
-  }
-}
-
-/**
- * Toggle AI Agent Mode on/off (only works in Smart Mode)
- */
-function toggleAIAgent() {
-  if (!isSmartMode) return; // Only works in Smart Mode
-  
-  isAIAgentMode = !isAIAgentMode;
-  const toggle = document.getElementById('ai-agent-toggle');
-  const badge = document.getElementById('ai-agent-badge');
-  const smartTip = document.getElementById('smart-tip');
-  const aiAgentTip = document.getElementById('ai-agent-tip');
-  const searchBtnText = document.getElementById('search-btn-text');
-
-  toggle.classList.toggle('active', isAIAgentMode);
-  badge.classList.toggle('hidden', !isAIAgentMode);
-  
-  if (isAIAgentMode) {
-    smartTip.classList.add('hidden');
-    aiAgentTip.classList.remove('hidden');
-    searchBtnText.textContent = 'Run AI Agent Analysis';
-  } else {
-    smartTip.classList.remove('hidden');
-    aiAgentTip.classList.add('hidden');
-    searchBtnText.textContent = 'Run Smart Analysis';
   }
 }
 
@@ -106,15 +66,12 @@ async function runSmartAnalysis(domain) {
   
   const btn = document.getElementById('search-btn');
   btn.disabled = true;
-  btn.innerHTML = isAIAgentMode 
-    ? '<i class="fas fa-robot fa-spin"></i> AI Agent Working...'
-    : '<i class="fas fa-spinner fa-spin"></i> Analyzing...';
+  btn.innerHTML = '<i class="fas fa-robot fa-spin"></i> AI Analyzing...';
 
-  updateProgress(5, isAIAgentMode ? 'Initializing AI Agent...' : 'Connecting to website...');
+  updateProgress(5, 'Initializing AI Agent...');
 
   try {
-    // Different progress messages for AI Agent mode
-    const progressMessages = isAIAgentMode ? [
+    const progressMessages = [
       [10, 'AI Agent: Creating Stagehand session...'],
       [20, 'AI Agent: Navigating to website...'],
       [30, 'AI Agent: Analyzing page visually...'],
@@ -124,13 +81,6 @@ async function runSmartAnalysis(domain) {
       [70, 'AI Agent: Executing keyword search...'],
       [80, 'AI Agent: Capturing results...'],
       [90, 'AI Agent: Evaluating comparison...'],
-    ] : [
-      [15, 'Taking homepage screenshot...'],
-      [30, 'Analyzing site with AI...'],
-      [45, 'Generating test queries...'],
-      [60, 'Running natural language search...'],
-      [75, 'Running keyword search...'],
-      [85, 'Evaluating results...'],
     ];
 
     // Simulate progress updates since we don't have SSE
@@ -145,12 +95,9 @@ async function runSmartAnalysis(domain) {
           }
         }
       }
-    }, isAIAgentMode ? 3000 : 2000); // AI Agent takes longer
-
-    // Use different endpoint for AI Agent mode
-    const endpoint = isAIAgentMode ? '/api/ai-analyze' : '/api/analyze';
+    }, 3000);
     
-    const response = await fetch(endpoint, {
+    const response = await fetch('/api/analyze', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ domain }),
@@ -178,7 +125,7 @@ async function runSmartAnalysis(domain) {
     document.getElementById('empty-state').classList.remove('hidden');
   } finally {
     btn.disabled = false;
-    btn.innerHTML = '<i class="fas fa-search"></i> <span id="search-btn-text">Run Smart Analysis</span>';
+    btn.innerHTML = '<i class="fas fa-search"></i> <span id="search-btn-text">Analyze Search Quality</span>';
   }
 }
 
