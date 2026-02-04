@@ -159,9 +159,9 @@ async function dismissPopups(stagehand: Stagehand, page: any): Promise<void> {
   
   // Strategy 3: Use Stagehand AI as a backup (with error handling)
   try {
-    await stagehand.act({
-      action: "If you see any popup, modal, or overlay blocking the main content, click the close button or X to dismiss it. Otherwise do nothing."
-    });
+    await stagehand.act(
+      "If you see any popup, modal, or overlay blocking the main content, click the close button or X to dismiss it. Otherwise do nothing."
+    );
     console.log('  [AI] ✓ Stagehand popup check complete');
   } catch (e: any) {
     // This is expected to fail sometimes when there's nothing to close
@@ -391,17 +391,17 @@ Return ONLY this JSON (no other text):
     try {
       // Find and activate search
       console.log(`  [AI] Finding search...`);
-      await stagehand.act({ action: "Find and click the search icon or search input field" });
+      await stagehand.act("Find and click the search icon or search input field");
       await new Promise(r => setTimeout(r, 1000));
       
       // Type the query
       console.log(`  [AI] Typing query: "${searchQuery}"`);
-      await stagehand.act({ action: `Type: ${searchQuery}` });
+      await stagehand.act(`Type: ${searchQuery}`);
       await new Promise(r => setTimeout(r, 500));
       
       // Submit search
       console.log(`  [AI] Submitting search...`);
-      await stagehand.act({ action: "Press Enter or click the search button to submit" });
+      await stagehand.act("Press Enter or click the search button to submit");
       await new Promise(r => setTimeout(r, 4000)); // Wait for results
       
     } catch (searchError: any) {
