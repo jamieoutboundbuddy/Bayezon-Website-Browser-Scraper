@@ -147,8 +147,16 @@ async function dismissPopups(stagehand: Stagehand, page: any): Promise<void> {
       "If there is any popup, modal, or overlay visible (like cookie consent, email signup, newsletter, or discount offer), close it by clicking the X button, 'No thanks', 'Close', 'Dismiss', or similar close button. Do NOT click subscribe, sign up, or any colored action buttons. If no popup is visible, do nothing."
     );
     console.log('  [AI] ✓ Popup check complete');
-  } catch {
-    // Expected if no popup exists - this is fine
+  } catch (e: any) {
+    // Expected errors:
+    // - "No object generated: response did not match schema" = no popup found (LLM returns {})
+    // - Other schema validation errors when there's nothing to do
+    // These are all fine - just means no popup was visible
+    if (e.message?.includes('schema') || e.message?.includes('No object generated')) {
+      // This is expected when no popup exists
+    } else {
+      console.log(`  [AI] Popup check: ${e.message?.substring(0, 50) || 'no action needed'}`);
+    }
   }
   
   await new Promise(r => setTimeout(r, 500));
@@ -515,7 +523,7 @@ Answer in 2-4 words only. Examples:
       }
       
       // ============================================================
-      // SIMPLIFIED SEARCH - Stagehand AI handles everything
+      // SIMPLIFIED SEARCH - Two explicit steps: TYPE then SUBMIT
       // ============================================================
       console.log(`  [AI] Executing search for: "${query}"`);
       
@@ -523,15 +531,25 @@ Answer in 2-4 words only. Examples:
       await dismissPopups(stagehand, page);
       
       try {
-        // Single instruction - AI figures out click/type/submit for ANY website
+        // Step 1: Click search and type the query
+        console.log(`  [AI] Step 1: Finding search and typing...`);
         await stagehand.act(
-          `Search for "${query}" on this website. Click the search icon if needed, type the query into the search box, and submit the search to see results.`
+          `Click on the search input field or search icon to open search, then type: ${query}`
+        );
+        
+        await new Promise(r => setTimeout(r, 1000));
+        
+        // Step 2: EXPLICITLY press Enter to submit the search
+        console.log(`  [AI] Step 2: Pressing Enter to submit...`);
+        await stagehand.act(
+          `Press the Enter key on the keyboard to submit the search and go to the results page`
         );
         
         // Wait for results page to load
         await new Promise(r => setTimeout(r, 4000));
         
         // Verify we got results
+        const currentUrl = page.url();
         const hasResults = await page.evaluate(() => {
           const text = document.body.innerText.toLowerCase();
           return text.includes('result') || text.includes('product') || 
@@ -539,6 +557,7 @@ Answer in 2-4 words only. Examples:
                  document.querySelectorAll('[class*="product"], .product-card, .product-grid').length > 0;
         });
         
+        console.log(`  [AI] Current URL: ${currentUrl}`);
         if (hasResults) {
           console.log(`  [AI] ✓ Search succeeded with results`);
         } else {
