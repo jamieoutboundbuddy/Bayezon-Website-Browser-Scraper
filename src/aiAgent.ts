@@ -132,147 +132,26 @@ async function createStagehandSession(): Promise<Stagehand> {
 }
 
 // ============================================================================
-// Enhanced Popup Dismissal (with GDPR/Cookie Consent + Email Signup Modals)
+// Simplified Popup Dismissal - Let Stagehand AI handle it
 // ============================================================================
 
 async function dismissPopups(stagehand: Stagehand, page: any): Promise<void> {
-  console.log('  [AI] Dismissing popups...');
+  console.log('  [AI] Checking for popups...');
   
   // Wait for popups to appear
-  await new Promise(resolve => setTimeout(resolve, 2000));
+  await new Promise(r => setTimeout(r, 1500));
   
-  // Strategy 1: Targeted email signup modal detection
   try {
-    const dismissed = await page.evaluate(() => {
-      // Indicators that suggest this is an email signup popup
-      const emailPopupIndicators = ['15%', '10%', '20%', 'UNLOCK', 'Sign up', 'Subscribe', 'Newsletter', 'exclusive', 'OFF', 'discount', 'email'];
-      
-      // Find visible modal/popup containers
-      const modalContainers = document.querySelectorAll(
-        '[role="dialog"], [aria-modal="true"], [class*="modal"], [class*="popup"], [class*="overlay"], [class*="klaviyo"], [class*="privy"]'
-      );
-      
-      for (const modal of Array.from(modalContainers)) {
-        const modalEl = modal as HTMLElement;
-        if (!modalEl.offsetParent) continue; // Not visible
-        
-        const modalText = modalEl.innerText || '';
-        const isEmailPopup = emailPopupIndicators.some(indicator => 
-          modalText.toLowerCase().includes(indicator.toLowerCase())
-        );
-        
-        if (isEmailPopup) {
-          console.log('Found email popup, looking for dismiss button...');
-          
-          // Priority 1: Look for "No thanks" specifically (more flexible matching)
-          const allElements = modalEl.querySelectorAll('*');
-          for (const el of Array.from(allElements)) {
-            const elText = ((el as HTMLElement).innerText || '').toLowerCase().trim();
-            
-            // "No thanks" variations - match partial text too
-            if (elText.includes('no thanks') || elText.includes('no, thanks') || 
-                elText.includes('no thank') || elText === 'no' || elText === 'not now' ||
-                elText === 'skip' || elText === 'maybe later' || elText === 'dismiss') {
-              // Make sure this isn't a long text block (should be a short link/button)
-              if (elText.length < 30) {
-                (el as HTMLElement).click();
-                return true;
-              }
-            }
-          }
-          
-          // Priority 2: Close/X buttons
-          const closeButtons = modalEl.querySelectorAll(
-            'button[aria-label*="close" i], button[aria-label*="dismiss" i], [class*="close"], [class*="dismiss"], button:has(svg)'
-          );
-          for (const btn of Array.from(closeButtons)) {
-            if ((btn as HTMLElement).offsetParent) {
-              (btn as HTMLElement).click();
-              return true;
-            }
-          }
-          
-          // Priority 3: Any element with dismiss text
-          for (const el of Array.from(allElements)) {
-            const elText = ((el as HTMLElement).innerText || '').toLowerCase().trim();
-            if (['skip', 'close', 'not now', 'maybe later', 'x', '×'].includes(elText)) {
-              (el as HTMLElement).click();
-              return true;
-            }
-          }
-        }
-      }
-      
-      return false;
-    });
-    
-    if (dismissed) {
-      console.log('  [AI] ✓ Email popup dismissed');
-      await new Promise(r => setTimeout(r, 1000));
-      return; // Successfully dismissed, no need for other strategies
-    }
-  } catch (e: any) {
-    console.log(`  [AI] Email popup scan: ${e.message || 'no popup found'}`);
-  }
-  
-  // Strategy 2: Escape key multiple times
-  for (let i = 0; i < 5; i++) {
-    try {
-      await page.keyboard.press('Escape');
-      await new Promise(resolve => setTimeout(resolve, 200));
-    } catch {
-      // Ignore
-    }
-  }
-  
-  // Strategy 3: Click cookie/GDPR accept buttons
-  try {
-    await page.evaluate(() => {
-      const selectors = [
-        '#onetrust-accept-btn-handler',
-        '.cc-accept',
-        '#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll',
-        'button[id*="accept"]',
-        'button[class*="accept"]',
-        '[data-testid="cookie-accept"]',
-      ];
-      
-      for (const selector of selectors) {
-        try {
-          const el = document.querySelector(selector) as HTMLElement;
-          if (el && el.offsetParent !== null) {
-            el.click();
-          }
-        } catch { }
-      }
-      
-      // Click any button with "Accept" text
-      document.querySelectorAll('button').forEach((btn: any) => {
-        const text = (btn.textContent || '').toLowerCase();
-        if ((text.includes('accept') || text === 'ok' || text === 'got it') && btn.offsetParent !== null) {
-          btn.click();
-        }
-      });
-    });
-    console.log('  [AI] ✓ Cookie consent check complete');
-  } catch (e: any) {
-    console.log(`  [AI] Cookie check: ${e.message || 'done'}`);
-  }
-  
-  await new Promise(resolve => setTimeout(resolve, 500));
-  
-  // Strategy 4: Stagehand AI as final backup with VERY specific instruction
-  try {
+    // Single AI instruction handles all popup types
     await stagehand.act(
-      "ONLY if there is a popup/modal visible: Click the 'No thanks' text link (usually gray, at the bottom of the popup) or the X button to CLOSE and DISMISS the popup. DO NOT click any colored buttons like SUBSCRIBE, SIGN UP, MEN, WOMEN, or any button that would submit the form. The goal is to CLOSE the popup, not interact with it."
+      "If there is any popup, modal, or overlay visible (like cookie consent, email signup, newsletter, or discount offer), close it by clicking the X button, 'No thanks', 'Close', 'Dismiss', or similar close button. Do NOT click subscribe, sign up, or any colored action buttons. If no popup is visible, do nothing."
     );
-    console.log('  [AI] ✓ Stagehand popup check complete');
-  } catch (e: any) {
-    // This is expected if no popup exists
-    console.log(`  [AI] Stagehand popup: no action needed`);
+    console.log('  [AI] ✓ Popup check complete');
+  } catch {
+    // Expected if no popup exists - this is fine
   }
   
-  await new Promise(resolve => setTimeout(resolve, 500));
+  await new Promise(r => setTimeout(r, 500));
 }
 
 // ============================================================================
@@ -635,332 +514,38 @@ Answer in 2-4 words only. Examples:
         await dismissPopups(stagehand, page);
       }
       
-      // Execute search - DIRECT SELECTORS FIRST (fast, reliable), then AI fallback
-      let searchSucceeded = false;
-      
+      // ============================================================
+      // SIMPLIFIED SEARCH - Stagehand AI handles everything
+      // ============================================================
       console.log(`  [AI] Executing search for: "${query}"`);
       
       // Dismiss popups first
       await dismissPopups(stagehand, page);
       
-      // ============================================================
-      // STRATEGY 1: Direct CSS selectors (works 95% of the time, fast)
-      // ============================================================
-      const searchSelectors = [
-        'input[type="search"]',
-        'input[name="q"]',
-        'input[name="query"]',
-        'input[name="search"]',
-        'input[placeholder*="Search" i]',
-        'input[aria-label*="Search" i]',
-        'header input[type="text"]',
-        'nav input[type="text"]',
-        '[data-testid*="search" i] input',
-        '.search-input',
-        '#search-input',
-        '#search',
-        '.search input',
-        '[class*="search"] input[type="text"]',
-      ];
-      
-      console.log(`  [AI] Strategy 1: Trying direct CSS selectors...`);
-      
-      for (const selector of searchSelectors) {
-        try {
-          // Use page.evaluate to find and interact with elements
-          const found = await page.evaluate((sel: string) => {
-            const el = document.querySelector(sel) as HTMLInputElement | null;
-            if (el && el.offsetParent !== null) { // Check if visible
-              return true;
-            }
-            return false;
-          }, selector);
-          
-          if (found) {
-            console.log(`  [AI] ✓ Found search with selector: ${selector}`);
-            
-            // Step 1: Click and fill the input via JavaScript (fast, reliable)
-            await page.evaluate((data: { sel: string, q: string }) => {
-              const el = document.querySelector(data.sel) as HTMLInputElement;
-              if (el) {
-                el.click();
-                el.focus();
-                el.value = '';
-                el.value = data.q;
-                // Dispatch input event to trigger any listeners
-                el.dispatchEvent(new Event('input', { bubbles: true }));
-                el.dispatchEvent(new Event('change', { bubbles: true }));
-              }
-            }, { sel: selector, q: query });
-            
-            await new Promise(r => setTimeout(r, 1000)); // Wait for autocomplete to appear
-            
-            // Step 2: SUBMIT THE FORM (not just Enter - avoids autocomplete interception)
-            console.log(`  [AI] Submitting search form...`);
-            
-            // Try multiple submission methods
-            const submitted = await page.evaluate((sel: string) => {
-              const el = document.querySelector(sel) as HTMLInputElement;
-              if (!el) return false;
-              
-              // Method 1: Find and click a search submit button
-              const form = el.closest('form');
-              if (form) {
-                const submitBtn = form.querySelector('button[type="submit"], input[type="submit"], button:not([type]), [class*="submit"], [class*="search-btn"]');
-                if (submitBtn && (submitBtn as HTMLElement).offsetParent !== null) {
-                  (submitBtn as HTMLElement).click();
-                  return 'button';
-                }
-                // Method 2: Submit the form directly
-                form.submit();
-                return 'form';
-              }
-              
-              // Method 3: Look for a nearby search button
-              const parent = el.parentElement?.parentElement || el.parentElement;
-              if (parent) {
-                const btn = parent.querySelector('button, [role="button"]');
-                if (btn && (btn as HTMLElement).offsetParent !== null) {
-                  (btn as HTMLElement).click();
-                  return 'nearby-button';
-                }
-              }
-              
-              return false;
-            }, selector);
-            
-            if (submitted) {
-              console.log(`  [AI] ✓ Submitted via: ${submitted}`);
-            } else {
-              // Fallback: Use Stagehand to click the search button
-              console.log(`  [AI] JS submit failed, trying Stagehand to click search button...`);
-              try {
-                await stagehand.act("Click the search submit button or magnifying glass icon to execute the search");
-              } catch (e) {
-                // Last resort: Press Enter via Stagehand
-                console.log(`  [AI] Trying Stagehand Enter as last resort...`);
-                await stagehand.act("Press Enter to submit the search");
-              }
-            }
-            
-            await new Promise(r => setTimeout(r, 4000)); // Wait for results page
-            
-            // Step 3: Verify we navigated to results page
-            const currentUrl = page.url();
-            const hasActualResults = await page.evaluate(() => {
-              const text = document.body.innerText.toLowerCase();
-              // Check for search results indicators
-              const hasResultsPageIndicators = 
-                text.includes('results for') || 
-                text.includes('search results') ||
-                text.includes(' found') ||
-                text.includes('showing ');
-              const hasProductGrid = document.querySelectorAll('[class*="product"], [data-product], .product-card, .product-grid').length > 2;
-              return hasResultsPageIndicators || hasProductGrid;
-            });
-            
-            if (hasActualResults) {
-              console.log(`  [AI] ✓ Search succeeded with actual results! URL: ${currentUrl.substring(0, 60)}`);
-              searchSucceeded = true;
-              break;
-            } else if (currentUrl.includes('search') || currentUrl.includes('q=')) {
-              console.log(`  [AI] ⚠ URL changed but no results visible yet...`);
-              // Continue to re-submit logic below
-            }
-          }
-        } catch (e) {
-          // Continue to next selector
-        }
-      }
-      
-      // ============================================================
-      // STRATEGY 1.5: Re-submit if on search page but no results
-      // (Handles sites like PSD.com where URL navigation doesn't auto-execute)
-      // ============================================================
-      if (!searchSucceeded) {
-        const currentUrl = page.url();
-        if (currentUrl.includes('search') || currentUrl.includes('q=')) {
-          console.log(`  [AI] Strategy 1.5: On search page but no results, re-typing query...`);
-          
-          // Dismiss any popups that appeared
-          await dismissPopups(stagehand, page);
-          await new Promise(r => setTimeout(r, 1000));
-          
-          // Find the main search input on this page and type again
-          try {
-            // Look for a prominent search input on the search results page
-            const mainSearchFound = await page.evaluate((q: string) => {
-              // Look for large/main search inputs (not the small header one)
-              const inputs = Array.from(document.querySelectorAll('input[type="search"], input[type="text"], input[placeholder*="Search" i]'));
-              // Prefer inputs that are larger (likely the main search box)
-              for (const inp of inputs) {
-                const el = inp as HTMLInputElement;
-                const rect = el.getBoundingClientRect();
-                // Check if visible and reasonably sized (main search boxes are usually wider)
-                if (el.offsetParent !== null && rect.width > 200) {
-                  el.click();
-                  el.focus();
-                  el.value = '';
-                  el.value = q;
-                  el.dispatchEvent(new Event('input', { bubbles: true }));
-                  return true;
-                }
-              }
-              return false;
-            }, query);
-            
-            if (mainSearchFound) {
-              console.log(`  [AI] ✓ Found main search input, submitting form...`);
-              await new Promise(r => setTimeout(r, 500));
-              
-              // Submit the form directly (not Enter - avoids autocomplete)
-              await page.evaluate(() => {
-                const inputs = Array.from(document.querySelectorAll('input[type="search"], input[type="text"]'));
-                for (const inp of inputs) {
-                  const el = inp as HTMLInputElement;
-                  if (el.value && el.offsetParent !== null) {
-                    const form = el.closest('form');
-                    if (form) {
-                      form.submit();
-                      return;
-                    }
-                  }
-                }
-              });
-              
-              await new Promise(r => setTimeout(r, 4000));
-              
-              // Verify results now showing
-              const hasResults = await page.evaluate(() => {
-                const text = document.body.innerText.toLowerCase();
-                return text.includes('results for') || text.includes('search results') ||
-                       document.querySelectorAll('[class*="product"], .product-card').length > 2;
-              });
-              
-              if (hasResults) {
-                console.log(`  [AI] ✓ Re-submit succeeded with results!`);
-                searchSucceeded = true;
-              }
-            }
-          } catch (e) {
-            console.log(`  [AI] Re-submit failed, continuing to Strategy 2...`);
-          }
-        }
-      }
-      
-      // ============================================================
-      // STRATEGY 2: Stagehand AI (only if direct selectors failed)
-      // ============================================================
-      if (!searchSucceeded) {
-        console.log(`  [AI] Strategy 2: Trying Stagehand AI...`);
-        try {
-          // First try to click search icon to open search
-          await stagehand.act("Click the search icon (magnifying glass) in the header to open search");
-          await new Promise(r => setTimeout(r, 2000));
-          
-          // Type the search query
-          await stagehand.act(`Type into the search input field: ${query}`);
-          await new Promise(r => setTimeout(r, 1500)); // Wait for autocomplete
-          
-          // CLICK the search button (not Enter - avoids autocomplete interception)
-          await stagehand.act("Click the search submit button, search icon, or magnifying glass button to execute the search. Do NOT select from autocomplete dropdown.");
-          await new Promise(r => setTimeout(r, 4000));
-          
-          // Verify we got actual search results page
-          const hasActualResults = await page.evaluate(() => {
-            const text = document.body.innerText.toLowerCase();
-            return text.includes('results for') || text.includes('search results') ||
-                   document.querySelectorAll('[class*="product"], .product-card').length > 2;
-          });
-          
-          if (hasActualResults) {
-            console.log(`  [AI] ✓ Stagehand search succeeded with results`);
-            searchSucceeded = true;
-          } else {
-            console.log(`  [AI] Stagehand navigated but no results visible`);
-          }
-        } catch (stagehandError: any) {
-          console.log(`  [AI] Stagehand search failed: ${stagehandError.message?.substring(0, 80)}`);
-        }
-      }
-      
-      // ============================================================
-      // STRATEGY 3: Direct URL navigation (last resort)
-      // ============================================================
-      if (!searchSucceeded) {
-        console.log(`  [AI] Strategy 3: Trying direct URL navigation...`);
-        const searchUrls = [
-          `${url}/search?q=${encodeURIComponent(query)}`,
-          `${url}/search?query=${encodeURIComponent(query)}`,
-          `${url}/pages/search-results-page?q=${encodeURIComponent(query)}`,
-        ];
+      try {
+        // Single instruction - AI figures out click/type/submit for ANY website
+        await stagehand.act(
+          `Search for "${query}" on this website. Click the search icon if needed, type the query into the search box, and submit the search to see results.`
+        );
         
-        for (const searchUrl of searchUrls) {
-          try {
-            console.log(`  [AI] Trying: ${searchUrl.substring(0, 70)}...`);
-            await page.goto(searchUrl, { waitUntil: 'domcontentloaded' });
-            await new Promise(r => setTimeout(r, 3000));
-            await dismissPopups(stagehand, page);
-            
-            // Check if this URL shows results or opened a search modal
-            const pageContent = await page.evaluate(() => document.body.innerText || '');
-            const hasResults = pageContent.toLowerCase().includes('result') || 
-                              pageContent.toLowerCase().includes('product');
-            
-            if (!hasResults) {
-              // URL opened but no results - try to type in visible search input
-              console.log(`  [AI] URL opened modal/page, trying to type...`);
-              for (const selector of searchSelectors) {
-                try {
-                  const typed = await page.evaluate((data: { sel: string, q: string }) => {
-                    const el = document.querySelector(data.sel) as HTMLInputElement | null;
-                    if (el && el.offsetParent !== null) {
-                      el.click();
-                      el.focus();
-                      el.value = data.q;
-                      el.dispatchEvent(new Event('input', { bubbles: true }));
-                      el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
-                      const form = el.closest('form');
-                      if (form) form.submit();
-                      return true;
-                    }
-                    return false;
-                  }, { sel: selector, q: query });
-                  
-                  if (typed) {
-                    await new Promise(r => setTimeout(r, 4000));
-                    break;
-                  }
-                } catch (e) { /* continue */ }
-              }
-            }
-            
-            // Final verification
-            const finalContent = await page.evaluate(() => document.body.innerText || '');
-            if (!finalContent.includes('Page not found') && !finalContent.includes('404')) {
-              console.log(`  [AI] ✓ Direct URL strategy completed`);
-              searchSucceeded = true;
-              break;
-            }
-          } catch (e) {
-            console.log(`  [AI] URL failed, trying next...`);
-          }
-        }
-      }
-      
-      // Log diagnostic if all strategies failed
-      if (!searchSucceeded) {
-        console.log(`  [AI] ⚠ All search strategies failed. Diagnostics:`);
-        const diagnostics = await page.evaluate(() => {
-          const inputs = Array.from(document.querySelectorAll('input'));
-          return inputs.slice(0, 10).map(i => ({
-            type: i.type,
-            name: i.name || '(none)',
-            placeholder: i.placeholder || '(none)',
-            visible: i.offsetParent !== null
-          }));
+        // Wait for results page to load
+        await new Promise(r => setTimeout(r, 4000));
+        
+        // Verify we got results
+        const hasResults = await page.evaluate(() => {
+          const text = document.body.innerText.toLowerCase();
+          return text.includes('result') || text.includes('product') || 
+                 text.includes('showing') || text.includes('found') ||
+                 document.querySelectorAll('[class*="product"], .product-card, .product-grid').length > 0;
         });
-        console.log(`  [AI] Visible inputs:`, JSON.stringify(diagnostics));
+        
+        if (hasResults) {
+          console.log(`  [AI] ✓ Search succeeded with results`);
+        } else {
+          console.log(`  [AI] Search executed but no results visible`);
+        }
+      } catch (e: any) {
+        console.log(`  [AI] Search failed: ${e.message?.substring(0, 80)}`);
       }
       
       // Dismiss post-search popups
