@@ -680,7 +680,7 @@ Answer in 2-4 words only. Examples:
             await new Promise(r => setTimeout(r, 3000));
             
             // Check if we got results (not a 404)
-            const pageContent = await page.content();
+            const pageContent = await page.evaluate(() => document.body.innerText || '');
             if (!pageContent.includes('Not Found') && !pageContent.includes('404')) {
               console.log(`  [AI] ✓ Fallback search URL worked`);
               searchSucceeded = true;
