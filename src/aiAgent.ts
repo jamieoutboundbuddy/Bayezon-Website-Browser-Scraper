@@ -513,20 +513,34 @@ export async function aiFullAnalysis(
     });
     console.log(`  [AI] ✓ Homepage saved: ${homepageScreenshotPath}`);
     
-    // Get initial brand understanding
+    // Get brand understanding from homepage screenshot (NOT just domain name)
     let brandSummary = 'E-commerce retailer';
     try {
+      const homepageBase64 = fs.readFileSync(homepageScreenshotPath).toString('base64');
       const brandResponse = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: 'gpt-4o',
         messages: [{ 
           role: 'user', 
-          content: `What does ${domain} sell? One short sentence.` 
+          content: [
+            { 
+              type: 'text', 
+              text: `Look at this e-commerce homepage screenshot. What does this website sell? Answer in one short sentence (e.g., "Athletic footwear and apparel", "Premium underwear and loungewear", "Outdoor gear and clothing").` 
+            },
+            {
+              type: 'image_url',
+              image_url: {
+                url: `data:image/png;base64,${homepageBase64}`,
+                detail: 'low'
+              }
+            }
+          ]
         }],
-        max_tokens: 50
+        max_tokens: 50,
+        temperature: 0
       });
       brandSummary = brandResponse.choices[0]?.message?.content?.trim() || brandSummary;
-    } catch {
-      // Use default
+    } catch (e: any) {
+      console.log(`  [AI] Brand detection failed: ${e.message}, using default`);
     }
     console.log(`  [AI] Brand: ${brandSummary}`);
     
