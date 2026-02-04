@@ -282,8 +282,8 @@
         <strong>Tip:</strong> Use natural language queries like "comfortable running shoes for flat feet" instead of simple keywords
       </p>
       <p id="smart-tip" class="hidden text-xs text-slate-500 mt-3">
-        <i class="fas fa-robot text-cyan-400 mr-1"></i>
-        <strong>Smart Mode:</strong> Just enter a domain - AI will navigate the site, generate test queries, and compare natural language vs keyword search automatically!
+        <i class="fas fa-flask text-cyan-400 mr-1"></i>
+        <strong>Adversarial Mode:</strong> AI tests up to 5 progressively harder queries until it finds a failure - proving their search needs help!
       </p>
     </div>
 
@@ -331,64 +331,10 @@
         </div>
       </div>
 
-      <!-- Comparison View -->
-      <div class="grid md:grid-cols-2 gap-6">
-        <!-- Natural Language Results -->
-        <div class="comparison-card">
-          <div class="comparison-header-nl p-4">
-            <h4 class="font-semibold text-slate-900 flex items-center gap-2">
-              <i class="fas fa-comment-dots"></i>
-              Natural Language Search
-            </h4>
-            <p id="nl-query" class="text-sm text-slate-700 mt-1 font-mono"></p>
-          </div>
-          <div class="p-4">
-            <div class="flex items-center justify-between mb-4">
-              <div>
-                <span class="text-sm text-slate-400">Results</span>
-                <p id="nl-result-count" class="text-2xl font-bold text-slate-200"></p>
-              </div>
-              <div id="nl-relevance-badge" class="px-3 py-1 rounded-full text-xs font-semibold"></div>
-            </div>
-            <div class="screenshot-container rounded-lg cursor-pointer" onclick="openModal(document.getElementById('nl-screenshot').src, 'Natural Language Results')">
-              <img id="nl-screenshot" src="" alt="NL Results">
-            </div>
-            <div class="mt-4">
-              <h5 class="text-sm font-medium text-slate-400 mb-2">Products Shown</h5>
-              <div id="nl-products" class="flex flex-wrap gap-2">
-                <!-- Filled by JS -->
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Keyword Results -->
-        <div class="comparison-card">
-          <div class="comparison-header-kw p-4">
-            <h4 class="font-semibold text-white flex items-center gap-2">
-              <i class="fas fa-keyboard"></i>
-              Keyword Search
-            </h4>
-            <p id="kw-query" class="text-sm text-white/80 mt-1 font-mono"></p>
-          </div>
-          <div class="p-4">
-            <div class="flex items-center justify-between mb-4">
-              <div>
-                <span class="text-sm text-slate-400">Results</span>
-                <p id="kw-result-count" class="text-2xl font-bold text-slate-200"></p>
-              </div>
-              <div id="kw-relevance-badge" class="px-3 py-1 rounded-full text-xs font-semibold"></div>
-            </div>
-            <div class="screenshot-container rounded-lg cursor-pointer" onclick="openModal(document.getElementById('kw-screenshot').src, 'Keyword Results')">
-              <img id="kw-screenshot" src="" alt="Keyword Results">
-            </div>
-            <div class="mt-4">
-              <h5 class="text-sm font-medium text-slate-400 mb-2">Products Shown</h5>
-              <div id="kw-products" class="flex flex-wrap gap-2">
-                <!-- Filled by JS -->
-              </div>
-            </div>
-          </div>
+      <!-- Adversarial Test Results -->
+      <div class="card p-6">
+        <div id="comparison-container">
+          <!-- Filled by JS with adversarial query progression -->
         </div>
       </div>
 

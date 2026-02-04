@@ -379,12 +379,19 @@ app.post('/api/analyze', async (req: Request, res: Response) => {
     // Use AI Agent (Stagehand) for the entire analysis - this works on ANY website
     const aiResult = await aiFullAnalysis(jobId, domain);
     
-    // Build screenshot URLs (frontend expects results_nl for NL search results)
+    // Build screenshot URLs
     const baseUrl = getBaseUrl(req);
     const screenshotUrls: Record<string, string> = {
       homepage: `${baseUrl}${getArtifactUrl(jobId, domainName, 'homepage')}`,
-      results_nl: `${baseUrl}${getArtifactUrl(jobId, domainName, 'results')}`
+      results: `${baseUrl}${getArtifactUrl(jobId, domainName, 'results')}`
     };
+    
+    // Add individual query result screenshots if available
+    if (aiResult.adversarial?.queriesTested) {
+      aiResult.adversarial.queriesTested.forEach((q, i) => {
+        screenshotUrls[`results_${i + 1}`] = `${baseUrl}${getArtifactUrl(jobId, domainName, `results_${i + 1}`)}`;
+      });
+    }
     
     // Convert AI Agent result to SmartAnalysisResult format
     const searchTypeMap: Record<string, 'modal' | 'page' | 'instant' | 'unknown'> = {
@@ -404,35 +411,36 @@ app.post('/api/analyze', async (req: Request, res: Response) => {
       searchType: searchTypeMap[aiResult.siteProfile.searchType] || 'unknown'
     };
     
+    // Simplified comparison - no keyword search
     const comparison: ComparisonAnalysis = {
       nlResultCount: aiResult.searchResults.naturalLanguage.resultCount,
       nlRelevance: aiResult.comparison.nlRelevance,
       nlProductsShown: aiResult.searchResults.naturalLanguage.productsFound,
-      kwResultCount: aiResult.searchResults.keyword.resultCount,
-      kwRelevance: aiResult.comparison.kwRelevance,
-      kwProductsShown: aiResult.searchResults.keyword.productsFound,
+      kwResultCount: null,  // No keyword search
+      kwRelevance: 'none',
+      kwProductsShown: [],
       missedProducts: [],
       verdict: aiResult.comparison.verdict,
       verdictReason: aiResult.comparison.reason
     };
     
+    // Include adversarial testing info in queries
     const queries: TestQueries = {
       naturalLanguageQuery: aiResult.nlQuery,
-      keywordQuery: aiResult.kwQuery,
+      keywordQuery: '',  // No keyword search
       queryBasis: 'inferred',
-      expectedBehavior: 'AI-determined based on site analysis'
+      expectedBehavior: aiResult.adversarial?.proofQuery 
+        ? `Search failed on "${aiResult.adversarial.proofQuery}"` 
+        : `Tested ${aiResult.adversarial?.queriesTested.length || 1} queries`
     };
     
     const confidence = {
-      level: (aiResult.searchResults.naturalLanguage.searchSuccess && aiResult.searchResults.keyword.searchSuccess) 
-        ? 'high' as const 
+      level: aiResult.adversarial?.proofQuery 
+        ? 'high' as const  // High confidence when we found a failure
         : 'medium' as const,
-      reasons: [
-        `AI successfully navigated ${domain}`,
-        `Search type detected: ${aiResult.siteProfile.searchType}`,
-        `NL search: ${aiResult.searchResults.naturalLanguage.searchSuccess ? 'success' : 'failed'}`,
-        `KW search: ${aiResult.searchResults.keyword.searchSuccess ? 'success' : 'failed'}`,
-      ]
+      reasons: aiResult.adversarial?.queriesTested.map(q => 
+        `Query ${q.attempt}: "${q.query}" → ${q.passed ? 'PASSED' : 'FAILED'}`
+      ) || [`Tested: ${aiResult.nlQuery}`]
     };
     
     // Save to database (optional - don't fail if DB not available)
@@ -460,16 +468,22 @@ app.post('/api/analyze', async (req: Request, res: Response) => {
       // Continue anyway - don't fail the request just because DB save failed
     }
     
-    const result: SmartAnalysisResult = {
+    const result: SmartAnalysisResult & { adversarial?: any } = {
       jobId,
       domain,
       siteProfile,
       queriesTested: queries,
       comparison,
       confidence,
-      emailHook: null,
+      emailHook: aiResult.adversarial?.proofQuery 
+        ? `I searched for "${aiResult.adversarial.proofQuery}" on your site and got ${
+            aiResult.searchResults.naturalLanguage.resultCount === 0 ? 'zero results' : 'irrelevant results'
+          }. This is exactly the kind of query your customers are typing.`
+        : null,
       screenshotUrls,
-      durationMs: Date.now() - startTime
+      durationMs: Date.now() - startTime,
+      // Include full adversarial data for frontend
+      adversarial: aiResult.adversarial
     };
     
     console.log(`\n[ANALYZE] ========================================`);

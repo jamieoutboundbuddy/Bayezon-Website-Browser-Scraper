@@ -72,15 +72,17 @@ async function runSmartAnalysis(domain) {
 
   try {
     const progressMessages = [
-      [10, 'AI Agent: Creating Stagehand session...'],
-      [20, 'AI Agent: Navigating to website...'],
-      [30, 'AI Agent: Analyzing page visually...'],
-      [40, 'AI Agent: Understanding site structure...'],
-      [50, 'AI Agent: Finding search functionality...'],
-      [60, 'AI Agent: Executing natural language search...'],
-      [70, 'AI Agent: Executing keyword search...'],
-      [80, 'AI Agent: Capturing results...'],
-      [90, 'AI Agent: Evaluating comparison...'],
+      [10, 'AI Agent: Creating browser session...'],
+      [15, 'AI Agent: Navigating to website...'],
+      [20, 'AI Agent: Dismissing popups...'],
+      [25, 'AI Agent: Capturing homepage...'],
+      [30, 'Adversarial Test: Query 1/5 (Easy)...'],
+      [40, 'Adversarial Test: Query 2/5 (Medium)...'],
+      [50, 'Adversarial Test: Query 3/5 (Harder)...'],
+      [60, 'Adversarial Test: Query 4/5 (Hard)...'],
+      [70, 'Adversarial Test: Query 5/5 (Hardest)...'],
+      [85, 'AI Agent: Evaluating results...'],
+      [95, 'AI Agent: Building report...'],
     ];
 
     // Simulate progress updates since we don't have SSE
@@ -130,14 +132,14 @@ async function runSmartAnalysis(domain) {
 }
 
 /**
- * Render Smart Mode results
+ * Render Smart Mode results (Adversarial Testing)
  */
 function renderSmartResults(data) {
   document.getElementById('loading-state').classList.add('hidden');
   document.getElementById('results-section').classList.add('hidden');
   document.getElementById('smart-results-section').classList.remove('hidden');
 
-  const { siteProfile, queriesTested, comparison, confidence, emailHook, screenshotUrls, durationMs } = data;
+  const { siteProfile, queriesTested, comparison, confidence, emailHook, screenshotUrls, durationMs, adversarial } = data;
 
   // Verdict card
   const verdictCard = document.getElementById('smart-verdict-card');
@@ -154,12 +156,12 @@ function renderSmartResults(data) {
     'OUTREACH': { 
       class: 'verdict-outreach', 
       badge: '🎯 OUTREACH', 
-      title: 'Great Prospect - Their Search Needs Help' 
+      title: 'Search Failure Found - Great Prospect!' 
     },
     'SKIP': { 
       class: 'verdict-skip', 
       badge: '✓ SKIP', 
-      title: 'Search Works Fine - Move On' 
+      title: 'Search Passed All Tests - Move On' 
     },
     'REVIEW': { 
       class: 'verdict-maybe', 
@@ -192,13 +194,13 @@ function renderSmartResults(data) {
   // Site Profile
   renderSiteProfile(siteProfile);
 
-  // Comparison view
-  if (queriesTested && comparison) {
-    renderComparison(queriesTested, comparison, screenshotUrls);
+  // Adversarial Query Progression (replaces comparison view)
+  if (adversarial?.queriesTested) {
+    renderAdversarialProgression(adversarial, screenshotUrls);
+  } else if (queriesTested && comparison) {
+    // Fallback to single query display
+    renderSingleQueryResult(queriesTested, comparison, screenshotUrls);
   }
-
-  // Missed products
-  renderMissedProducts(comparison?.missedProducts);
 
   // Email hook
   const hookEl = document.getElementById('smart-email-hook');
@@ -210,11 +212,139 @@ function renderSmartResults(data) {
     insightCard.classList.add('hidden');
   }
 
+  // Hide missed products (not relevant for adversarial)
+  const missedCard = document.getElementById('missed-products-card');
+  if (missedCard) missedCard.classList.add('hidden');
+
   // All screenshots
-  renderSmartScreenshots(screenshotUrls);
+  renderSmartScreenshots(screenshotUrls, adversarial);
 
   // Raw JSON
   document.getElementById('smart-raw-json').textContent = JSON.stringify(data, null, 2);
+}
+
+/**
+ * Render adversarial query progression
+ */
+function renderAdversarialProgression(adversarial, screenshots) {
+  const container = document.getElementById('comparison-container');
+  if (!container) return;
+  
+  const { queriesTested, failedOnAttempt, proofQuery } = adversarial;
+  
+  container.innerHTML = `
+    <div class="space-y-4">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-lg font-semibold text-slate-200">
+          <i class="fas fa-flask text-cyan-400 mr-2"></i>
+          Adversarial Search Test
+        </h3>
+        <span class="text-sm text-slate-400">
+          ${queriesTested.length} queries tested
+        </span>
+      </div>
+      
+      <div class="space-y-3">
+        ${queriesTested.map((q, i) => `
+          <div class="flex items-center gap-4 p-4 rounded-lg ${
+            q.passed 
+              ? 'bg-green-500/10 border border-green-500/30' 
+              : 'bg-red-500/10 border border-red-500/30'
+          }">
+            <div class="flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center ${
+              q.passed ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
+            }">
+              <i class="fas ${q.passed ? 'fa-check' : 'fa-times'}"></i>
+            </div>
+            <div class="flex-grow">
+              <div class="flex items-center gap-2">
+                <span class="text-xs text-slate-500">Query ${q.attempt}</span>
+                ${!q.passed ? '<span class="text-xs bg-red-500/30 text-red-300 px-2 py-0.5 rounded">PROOF</span>' : ''}
+              </div>
+              <p class="font-mono text-sm ${q.passed ? 'text-green-300' : 'text-red-300'}">
+                "${q.query}"
+              </p>
+              <p class="text-xs text-slate-400 mt-1">
+                ${q.resultCount !== null ? `${q.resultCount} results` : 'Unknown results'} 
+                ${q.reasoning ? `— ${q.reasoning.substring(0, 80)}${q.reasoning.length > 80 ? '...' : ''}` : ''}
+              </p>
+            </div>
+            ${q.screenshotPath ? `
+              <button 
+                onclick="openModal('${screenshots['results_' + q.attempt] || screenshots.results}', 'Query ${q.attempt} Results')"
+                class="flex-shrink-0 text-slate-400 hover:text-cyan-400 transition"
+              >
+                <i class="fas fa-image"></i>
+              </button>
+            ` : ''}
+          </div>
+        `).join('')}
+      </div>
+      
+      ${proofQuery ? `
+        <div class="mt-6 p-4 rounded-lg bg-red-500/10 border border-red-500/30">
+          <h4 class="font-semibold text-red-400 mb-2">
+            <i class="fas fa-exclamation-triangle mr-2"></i>
+            Proof of Search Weakness
+          </h4>
+          <p class="text-slate-300">
+            Search failed on query <span class="font-mono bg-red-500/20 px-2 py-0.5 rounded">"${proofQuery}"</span>
+            after ${failedOnAttempt - 1} successful tests.
+          </p>
+        </div>
+      ` : `
+        <div class="mt-6 p-4 rounded-lg bg-green-500/10 border border-green-500/30">
+          <h4 class="font-semibold text-green-400 mb-2">
+            <i class="fas fa-shield-alt mr-2"></i>
+            Search is Robust
+          </h4>
+          <p class="text-slate-300">
+            All ${queriesTested.length} test queries passed. This site handles natural language search well.
+          </p>
+        </div>
+      `}
+    </div>
+  `;
+}
+
+/**
+ * Render single query result (fallback for non-adversarial)
+ */
+function renderSingleQueryResult(queries, comparison, screenshots) {
+  const container = document.getElementById('comparison-container');
+  if (!container) return;
+  
+  container.innerHTML = `
+    <div class="p-6 rounded-lg bg-slate-800/50 border border-slate-700">
+      <h3 class="text-lg font-semibold text-slate-200 mb-4">
+        <i class="fas fa-search text-cyan-400 mr-2"></i>
+        Search Test Result
+      </h3>
+      <div class="space-y-4">
+        <div>
+          <span class="text-xs text-slate-500 uppercase">Query Tested</span>
+          <p class="font-mono text-cyan-300">"${queries.naturalLanguageQuery}"</p>
+        </div>
+        <div class="flex gap-4">
+          <div>
+            <span class="text-xs text-slate-500 uppercase">Results</span>
+            <p class="text-2xl font-bold text-slate-200">${comparison.nlResultCount ?? '?'}</p>
+          </div>
+          <div>
+            <span class="text-xs text-slate-500 uppercase">Relevance</span>
+            <p class="text-sm ${comparison.nlRelevance === 'high' ? 'text-green-400' : comparison.nlRelevance === 'none' ? 'text-red-400' : 'text-amber-400'}">
+              ${comparison.nlRelevance?.toUpperCase() || 'Unknown'}
+            </p>
+          </div>
+        </div>
+        ${screenshots?.results ? `
+          <div class="mt-4 cursor-pointer" onclick="openModal('${screenshots.results}', 'Search Results')">
+            <img src="${screenshots.results}" alt="Search Results" class="rounded-lg border border-slate-600 max-h-64 object-cover object-top">
+          </div>
+        ` : ''}
+      </div>
+    </div>
+  `;
 }
 
 /**
@@ -298,67 +428,7 @@ function renderSiteProfile(profile) {
   }
 }
 
-/**
- * Render comparison view
- */
-function renderComparison(queries, comparison, screenshots) {
-  // NL Query
-  document.getElementById('nl-query').textContent = `"${queries.naturalLanguageQuery}"`;
-  document.getElementById('nl-result-count').textContent = comparison.nlResultCount ?? '?';
-  document.getElementById('nl-screenshot').src = screenshots?.results_nl || '';
-  
-  // NL Relevance badge
-  const nlBadge = document.getElementById('nl-relevance-badge');
-  const nlRelevance = comparison.nlRelevance || 'mixed';
-  const relevanceStyles = {
-    'all_relevant': { bg: 'bg-green-500/20', text: 'text-green-400', label: 'All Relevant' },
-    'mostly_relevant': { bg: 'bg-green-500/10', text: 'text-green-300', label: 'Mostly Relevant' },
-    'mixed': { bg: 'bg-amber-500/20', text: 'text-amber-400', label: 'Mixed' },
-    'irrelevant': { bg: 'bg-red-500/20', text: 'text-red-400', label: 'Irrelevant' },
-    'none': { bg: 'bg-slate-500/20', text: 'text-slate-400', label: 'No Results' }
-  };
-  const nlStyle = relevanceStyles[nlRelevance] || relevanceStyles['mixed'];
-  nlBadge.className = `px-3 py-1 rounded-full text-xs font-semibold ${nlStyle.bg} ${nlStyle.text}`;
-  nlBadge.textContent = nlStyle.label;
-
-  // NL Products
-  const nlProducts = document.getElementById('nl-products');
-  if (comparison.nlProductsShown?.length > 0) {
-    nlProducts.innerHTML = comparison.nlProductsShown.slice(0, 5).map(p => 
-      `<span class="text-xs bg-cyan-500/10 border border-cyan-500/30 px-2 py-1 rounded text-cyan-300">${p}</span>`
-    ).join('');
-    if (comparison.nlProductsShown.length > 5) {
-      nlProducts.innerHTML += `<span class="text-xs text-slate-500">+${comparison.nlProductsShown.length - 5} more</span>`;
-    }
-  } else {
-    nlProducts.innerHTML = '<span class="text-xs text-slate-500">No products visible</span>';
-  }
-
-  // KW Query
-  document.getElementById('kw-query').textContent = `"${queries.keywordQuery}"`;
-  document.getElementById('kw-result-count').textContent = comparison.kwResultCount ?? '?';
-  document.getElementById('kw-screenshot').src = screenshots?.results_kw || '';
-  
-  // KW Relevance badge
-  const kwBadge = document.getElementById('kw-relevance-badge');
-  const kwRelevance = comparison.kwRelevance || 'mixed';
-  const kwStyle = relevanceStyles[kwRelevance] || relevanceStyles['mixed'];
-  kwBadge.className = `px-3 py-1 rounded-full text-xs font-semibold ${kwStyle.bg} ${kwStyle.text}`;
-  kwBadge.textContent = kwStyle.label;
-
-  // KW Products
-  const kwProducts = document.getElementById('kw-products');
-  if (comparison.kwProductsShown?.length > 0) {
-    kwProducts.innerHTML = comparison.kwProductsShown.slice(0, 5).map(p => 
-      `<span class="text-xs bg-violet-500/10 border border-violet-500/30 px-2 py-1 rounded text-violet-300">${p}</span>`
-    ).join('');
-    if (comparison.kwProductsShown.length > 5) {
-      kwProducts.innerHTML += `<span class="text-xs text-slate-500">+${comparison.kwProductsShown.length - 5} more</span>`;
-    }
-  } else {
-    kwProducts.innerHTML = '<span class="text-xs text-slate-500">No products visible</span>';
-  }
-}
+// renderComparison removed - replaced by renderAdversarialProgression
 
 /**
  * Render missed products card
@@ -378,17 +448,33 @@ function renderMissedProducts(missedProducts) {
 }
 
 /**
- * Render smart screenshots grid
+ * Render smart screenshots grid (Adversarial version)
  */
-function renderSmartScreenshots(urls) {
+function renderSmartScreenshots(urls, adversarial) {
   if (!urls) return;
   
   const grid = document.getElementById('smart-screenshots-grid');
+  
+  // Build stages dynamically based on adversarial results
   const stages = [
     { key: 'homepage', label: 'Homepage', icon: 'fa-home', color: 'text-cyan-400' },
-    { key: 'results_nl', label: 'NL Results', icon: 'fa-comment-dots', color: 'text-cyan-400' },
-    { key: 'results_kw', label: 'Keyword Results', icon: 'fa-keyboard', color: 'text-violet-400' },
   ];
+  
+  // Add screenshots for each tested query
+  if (adversarial?.queriesTested) {
+    adversarial.queriesTested.forEach((q, i) => {
+      stages.push({
+        key: `results_${i + 1}`,
+        label: `Query ${i + 1}: ${q.passed ? 'Passed' : 'FAILED'}`,
+        icon: q.passed ? 'fa-check-circle' : 'fa-times-circle',
+        color: q.passed ? 'text-green-400' : 'text-red-400',
+        query: q.query
+      });
+    });
+  } else {
+    // Fallback to single results screenshot
+    stages.push({ key: 'results', label: 'Search Results', icon: 'fa-search', color: 'text-cyan-400' });
+  }
 
   grid.innerHTML = stages.map(stage => {
     const url = urls[stage.key];
@@ -402,6 +488,7 @@ function renderSmartScreenshots(urls) {
           <i class="fas ${stage.icon} ${stage.color}"></i>
           ${stage.label}
         </p>
+        ${stage.query ? `<p class="text-xs text-slate-500 font-mono truncate">"${stage.query}"</p>` : ''}
       </div>
     `;
   }).join('');
