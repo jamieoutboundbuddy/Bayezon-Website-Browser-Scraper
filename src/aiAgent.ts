@@ -247,7 +247,7 @@ export async function aiFullAnalysis(
     console.log(`  [AI] ✓ Homepage screenshot saved: ${homepageScreenshotPath}`);
     
     // Step 5: Generate search query using domain knowledge (NO screenshot needed)
-    console.log(`[AI-FULL] Step 5: Generating search query (gpt-5-mini, text-only)...`);
+    console.log(`[AI-FULL] Step 5: Generating search query (gpt-4o-mini, text-only)...`);
     
     // Extract domain name for brand lookup
     const brandName = domain.replace(/^www\./, '').replace(/\.(com|co\.uk|net|org).*$/, '');
@@ -286,13 +286,14 @@ Return ONLY this JSON (no other text):
     let tokensUsed: number | null = null;
     
     try {
-      console.log(`  [AI] Calling gpt-5-mini for query generation...`);
+      console.log(`  [AI] Calling gpt-4o-mini for query generation...`);
       console.log(`  [AI] API Key present: ${!!process.env.OPENAI_API_KEY}`);
       
       const researchResponse = await openai.chat.completions.create({
-        model: 'gpt-5-mini',
+        model: 'gpt-4o-mini',
         messages: [{ role: 'user', content: queryPrompt }],
-        max_completion_tokens: 500
+        max_tokens: 300,
+        temperature: 0.7
       });
       
       console.log(`  [AI] OpenAI response received`);
@@ -359,7 +360,7 @@ Return ONLY this JSON (no other text):
             phase: 'query_generation',
             prompt: queryPrompt,
             response: researchContent,
-            model: 'gpt-5-mini',
+            model: 'gpt-4o-mini',
             tokensUsed: tokensUsed,
             durationMs: Date.now() - researchStartTime
           }
