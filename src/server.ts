@@ -28,6 +28,11 @@ import {
   normalizeDomain, 
   getDomainName 
 } from './utils';
+import { 
+  startBatchProcessor, 
+  triggerBatchProcessing,
+  getProcessorStatus 
+} from './batchProcessor';
 
 dotenv.config();
 
@@ -505,6 +510,40 @@ app.get('/api/batch/:batchId/failed', async (req: any, res: any) => {
 });
 
 /**
+ * POST /api/batch/:batchId/start - Manually trigger batch processing
+ * Also retries failed items
+ */
+app.post('/api/batch/:batchId/start', verifyCsvPassword, async (req: any, res: any) => {
+  try {
+    const success = await triggerBatchProcessing(req.params.batchId);
+    
+    if (!success) {
+      return res.status(404).json({ error: 'Batch not found' });
+    }
+
+    res.json({
+      success: true,
+      message: 'Batch processing triggered. Failed items will be retried.',
+      batchId: req.params.batchId
+    });
+  } catch (error: any) {
+    console.error('[CSV] Start batch error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/batch/processor/status - Get batch processor status
+ */
+app.get('/api/batch/processor/status', (req: any, res: any) => {
+  const status = getProcessorStatus();
+  res.json({
+    ...status,
+    message: status.running ? 'Batch processor is active' : 'Batch processor is stopped'
+  });
+});
+
+/**
  * Cleanup old jobs periodically
  */
 setInterval(() => {
@@ -531,6 +570,9 @@ if (process.env.VERCEL !== '1') {
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Website Search Tool server running on http://localhost:${PORT}`);
     console.log(`📸 Screenshots will be saved to ./artifacts/`);
+    
+    // Start the batch processor
+    startBatchProcessor();
   });
 }
 
