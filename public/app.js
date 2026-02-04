@@ -369,25 +369,33 @@ function showToast(message) {
  * Switch between tabs
  */
 function switchTab(tab) {
+  console.log('Switching to tab:', tab);
+  
   // Hide all tabs
-  document.getElementById('single-tab').classList.add('hidden');
-  document.getElementById('batch-tab').classList.add('hidden');
+  const singleTab = document.getElementById('single-tab');
+  const batchTab = document.getElementById('batch-tab');
+  const tabSingleBtn = document.getElementById('tab-single');
+  const tabBatchBtn = document.getElementById('tab-batch');
   
-  // Remove active styling from all tabs
-  document.getElementById('tab-single').classList.remove('border-b-2', 'border-gray-900', 'text-gray-900');
-  document.getElementById('tab-batch').classList.remove('border-b-2', 'border-gray-900', 'text-gray-900');
-  document.getElementById('tab-single').classList.add('border-b-2', 'border-transparent', 'text-gray-600');
-  document.getElementById('tab-batch').classList.add('border-b-2', 'border-transparent', 'text-gray-600');
+  if (!singleTab || !batchTab || !tabSingleBtn || !tabBatchBtn) {
+    console.error('Tab elements not found');
+    return;
+  }
   
-  // Show selected tab and mark active
   if (tab === 'single') {
-    document.getElementById('single-tab').classList.remove('hidden');
-    document.getElementById('tab-single').classList.add('border-b-2', 'border-gray-900', 'text-gray-900');
-    document.getElementById('tab-single').classList.remove('border-transparent', 'text-gray-600');
+    singleTab.classList.remove('hidden');
+    batchTab.classList.add('hidden');
+    tabSingleBtn.style.borderBottomColor = '#1a1a1a';
+    tabSingleBtn.style.color = '#1a1a1a';
+    tabBatchBtn.style.borderBottomColor = 'transparent';
+    tabBatchBtn.style.color = '#4b5563';
   } else {
-    document.getElementById('batch-tab').classList.remove('hidden');
-    document.getElementById('tab-batch').classList.add('border-b-2', 'border-gray-900', 'text-gray-900');
-    document.getElementById('tab-batch').classList.remove('border-transparent', 'text-gray-600');
+    singleTab.classList.add('hidden');
+    batchTab.classList.remove('hidden');
+    tabBatchBtn.style.borderBottomColor = '#1a1a1a';
+    tabBatchBtn.style.color = '#1a1a1a';
+    tabSingleBtn.style.borderBottomColor = 'transparent';
+    tabSingleBtn.style.color = '#4b5563';
   }
 }
 
