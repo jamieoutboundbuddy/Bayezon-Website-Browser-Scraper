@@ -245,6 +245,7 @@ Return ONLY this JSON (no other text):
     const researchStartTime = Date.now();
     let researchContent = '';
     let researchData: { brand_summary: string; search_query: string };
+    let tokensUsed: number | null = null;
     
     try {
       const researchResponse = await openai.chat.completions.create({
@@ -253,6 +254,7 @@ Return ONLY this JSON (no other text):
         max_completion_tokens: 200
       });
       
+      tokensUsed = researchResponse.usage?.total_tokens ?? null;
       researchContent = researchResponse.choices[0].message.content || '';
       console.log(`  [AI] Raw LLM response: ${researchContent.substring(0, 200)}`);
       
@@ -307,7 +309,7 @@ Return ONLY this JSON (no other text):
             prompt: queryPrompt,
             response: researchContent,
             model: 'gpt-5-mini',
-            tokensUsed: researchResponse.usage?.total_tokens ?? null,
+            tokensUsed: tokensUsed,
             durationMs: Date.now() - researchStartTime
           }
         });
