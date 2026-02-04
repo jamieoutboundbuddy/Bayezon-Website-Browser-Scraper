@@ -132,7 +132,7 @@ async function createStagehandSession(): Promise<Stagehand> {
 }
 
 // ============================================================================
-// Enhanced Popup Dismissal (with GDPR/Cookie Consent)
+// Enhanced Popup Dismissal (with GDPR/Cookie Consent + Email Signup Modals)
 // ============================================================================
 
 async function dismissPopups(stagehand: Stagehand, page: any): Promise<void> {
@@ -141,111 +141,131 @@ async function dismissPopups(stagehand: Stagehand, page: any): Promise<void> {
   // Wait for popups to appear
   await new Promise(resolve => setTimeout(resolve, 2000));
   
-  // Strategy 1: Escape key
-  for (let i = 0; i < 3; i++) {
+  // Strategy 1: Targeted email signup modal detection
+  try {
+    const dismissed = await page.evaluate(() => {
+      // Indicators that suggest this is an email signup popup
+      const emailPopupIndicators = ['15%', '10%', '20%', 'UNLOCK', 'Sign up', 'Subscribe', 'Newsletter', 'exclusive', 'OFF', 'discount', 'email'];
+      
+      // Find visible modal/popup containers
+      const modalContainers = document.querySelectorAll(
+        '[role="dialog"], [aria-modal="true"], [class*="modal"], [class*="popup"], [class*="overlay"], [class*="klaviyo"], [class*="privy"]'
+      );
+      
+      for (const modal of Array.from(modalContainers)) {
+        const modalEl = modal as HTMLElement;
+        if (!modalEl.offsetParent) continue; // Not visible
+        
+        const modalText = modalEl.innerText || '';
+        const isEmailPopup = emailPopupIndicators.some(indicator => 
+          modalText.toLowerCase().includes(indicator.toLowerCase())
+        );
+        
+        if (isEmailPopup) {
+          console.log('Found email popup, looking for dismiss button...');
+          
+          // Priority 1: Look for "No thanks" specifically
+          const allElements = modalEl.querySelectorAll('*');
+          for (const el of Array.from(allElements)) {
+            const elText = ((el as HTMLElement).innerText || '').toLowerCase().trim();
+            const tagName = el.tagName.toLowerCase();
+            
+            // "No thanks" variations
+            if (elText === 'no thanks' || elText === 'no, thanks' || elText === 'no thank you') {
+              (el as HTMLElement).click();
+              return true;
+            }
+          }
+          
+          // Priority 2: Close/X buttons
+          const closeButtons = modalEl.querySelectorAll(
+            'button[aria-label*="close" i], button[aria-label*="dismiss" i], [class*="close"], [class*="dismiss"], button:has(svg)'
+          );
+          for (const btn of Array.from(closeButtons)) {
+            if ((btn as HTMLElement).offsetParent) {
+              (btn as HTMLElement).click();
+              return true;
+            }
+          }
+          
+          // Priority 3: Any element with dismiss text
+          for (const el of Array.from(allElements)) {
+            const elText = ((el as HTMLElement).innerText || '').toLowerCase().trim();
+            if (['skip', 'close', 'not now', 'maybe later', 'x', '×'].includes(elText)) {
+              (el as HTMLElement).click();
+              return true;
+            }
+          }
+        }
+      }
+      
+      return false;
+    });
+    
+    if (dismissed) {
+      console.log('  [AI] ✓ Email popup dismissed');
+      await new Promise(r => setTimeout(r, 1000));
+      return; // Successfully dismissed, no need for other strategies
+    }
+  } catch (e: any) {
+    console.log(`  [AI] Email popup scan: ${e.message || 'no popup found'}`);
+  }
+  
+  // Strategy 2: Escape key multiple times
+  for (let i = 0; i < 5; i++) {
     try {
       await page.keyboard.press('Escape');
-      await new Promise(resolve => setTimeout(resolve, 300));
+      await new Promise(resolve => setTimeout(resolve, 200));
     } catch {
       // Ignore
     }
   }
   
-  // Strategy 2: Click common close/accept buttons via JavaScript
+  // Strategy 3: Click cookie/GDPR accept buttons
   try {
     await page.evaluate(() => {
-      // Extended selectors for GDPR/cookie consent modals
       const selectors = [
-        // Generic close buttons
-        '[aria-label*="close" i]',
-        '[aria-label*="dismiss" i]',
-        'button[class*="close"]',
-        'button[class*="Close"]',
-        '[class*="modal-close"]',
-        '[class*="popup-close"]',
-        
-        // Cookie/GDPR specific - Accept All buttons (most common)
+        '#onetrust-accept-btn-handler',
+        '.cc-accept',
+        '#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll',
         'button[id*="accept"]',
         'button[class*="accept"]',
-        '[class*="cookie"] button[class*="accept"]',
-        '[class*="consent"] button[class*="accept"]',
-        '#onetrust-accept-btn-handler',  // OneTrust (very common)
-        '.cc-accept',                     // Cookie Consent library
-        '#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll', // Cookiebot
         '[data-testid="cookie-accept"]',
-        'button[data-cookie-accept]',
-        
-        // Text-based selectors (backup)
-        'button:contains("Accept All")',
-        'button:contains("Accept Cookies")',
-        'button:contains("Accept all")',
-        'button:contains("I Accept")',
-        'button:contains("Got it")',
-        'button:contains("OK")',
-        'button:contains("Agree")',
-        
-        // Newsletter/promo popups
-        '[class*="newsletter"] button[class*="close"]',
-        '[class*="promo"] button[class*="close"]',
-        '[class*="popup"] button[class*="close"]',
       ];
       
       for (const selector of selectors) {
         try {
-          const elements = document.querySelectorAll(selector);
-          elements.forEach((el: any) => {
-            if (el && typeof el.click === 'function' && el.offsetParent !== null) {
-              el.click();
-            }
-          });
-        } catch {
-          // Ignore selector errors
-        }
+          const el = document.querySelector(selector) as HTMLElement;
+          if (el && el.offsetParent !== null) {
+            el.click();
+          }
+        } catch { }
       }
       
-      // Also try clicking by button text content
-      const buttons = document.querySelectorAll('button');
-      const acceptTexts = ['accept all', 'accept cookies', 'i agree', 'got it', 'ok', 'accept'];
-      buttons.forEach((btn: any) => {
-        const text = (btn.textContent || '').toLowerCase().trim();
-        if (acceptTexts.some(t => text.includes(t)) && btn.offsetParent !== null) {
+      // Click any button with "Accept" text
+      document.querySelectorAll('button').forEach((btn: any) => {
+        const text = (btn.textContent || '').toLowerCase();
+        if ((text.includes('accept') || text === 'ok' || text === 'got it') && btn.offsetParent !== null) {
           btn.click();
         }
       });
-      
-      // Look for "No thanks" links/buttons (email signup popups)
-      const allClickable = document.querySelectorAll('button, a, span, div');
-      const dismissTexts = ['no thanks', 'no, thanks', 'skip', 'not now', 'maybe later', 'close', 'x'];
-      allClickable.forEach((el: any) => {
-        const text = (el.textContent || '').toLowerCase().trim();
-        if (dismissTexts.some(t => text === t || text.includes(t)) && el.offsetParent !== null) {
-          el.click();
-        }
-      });
-      
-      // Click modal overlays/backdrops
-      const overlays = document.querySelectorAll('[class*="overlay"], [class*="backdrop"], [class*="modal-bg"]');
-      overlays.forEach((el: any) => {
-        if (el && el.offsetParent !== null) {
-          el.click();
-        }
-      });
     });
-    console.log('  [AI] ✓ JS popup/cookie dismissal complete');
+    console.log('  [AI] ✓ Cookie consent check complete');
   } catch (e: any) {
-    console.log(`  [AI] JS popup dismissal: ${e.message || 'failed'}`);
+    console.log(`  [AI] Cookie check: ${e.message || 'done'}`);
   }
   
   await new Promise(resolve => setTimeout(resolve, 500));
   
-  // Strategy 3: Stagehand AI as backup - specifically handles email signup popups
+  // Strategy 4: Stagehand AI as final backup with VERY specific instruction
   try {
     await stagehand.act(
-      "Look for any popup, modal, or overlay blocking the page. This includes: email signup popups (click 'No thanks' or 'X'), cookie consent (click 'Accept'), newsletter modals (click 'Close' or 'Skip'). Click the appropriate dismiss button."
+      "CRITICAL: If there is a popup/modal in the center of the screen (especially one asking for email, offering a discount like '15% OFF', or showing 'UNLOCK'), click the 'No thanks' link at the bottom or the X/close button in the corner. If no popup exists, do nothing."
     );
     console.log('  [AI] ✓ Stagehand popup check complete');
   } catch (e: any) {
-    console.log(`  [AI] Stagehand popup check: ${e.message?.substring(0, 50) || 'no action needed'}`);
+    // This is expected if no popup exists
+    console.log(`  [AI] Stagehand popup: no action needed`);
   }
   
   await new Promise(resolve => setTimeout(resolve, 500));
@@ -611,22 +631,69 @@ Answer in 2-4 words only. Examples:
         await dismissPopups(stagehand, page);
       }
       
-      // Execute search
+      // Execute search - COMBINED APPROACH with verification and fallback
+      let searchSucceeded = false;
+      
       try {
-        console.log(`  [AI] Finding search...`);
-        await stagehand.act("Find and click the search icon or search input field");
-        await new Promise(r => setTimeout(r, 1000));
+        console.log(`  [AI] Executing search for: "${query}"`);
         
-        console.log(`  [AI] Typing query...`);
-        await stagehand.act(`Type: ${query}`);
-        await new Promise(r => setTimeout(r, 500));
+        // Single comprehensive Stagehand instruction
+        await stagehand.act(
+          `Complete these steps to search:
+          1. If any popup is visible, close it first (click "No thanks" or X)
+          2. Find the search bar or search icon (usually in the header/navigation)
+          3. Click to focus the search input
+          4. Type this exact text: ${query}
+          5. Press Enter to submit the search`
+        );
         
-        console.log(`  [AI] Submitting...`);
-        await stagehand.act("Press Enter or click the search button to submit");
+        // Wait for navigation
         await new Promise(r => setTimeout(r, 4000));
         
+        // Verify we're on a search results page
+        const currentUrl = page.url();
+        searchSucceeded = currentUrl.includes('search') || currentUrl.includes('query') || currentUrl.includes('q=');
+        
+        if (searchSucceeded) {
+          console.log(`  [AI] ✓ Search executed successfully`);
+        } else {
+          console.log(`  [AI] Search may not have completed, URL: ${currentUrl}`);
+        }
+        
       } catch (searchError: any) {
-        console.log(`  [AI] Search issue: ${searchError.message}`);
+        console.log(`  [AI] Stagehand search failed: ${searchError.message?.substring(0, 50)}`);
+      }
+      
+      // FALLBACK: If search didn't work, try direct URL navigation
+      if (!searchSucceeded) {
+        console.log(`  [AI] Trying fallback: direct search URL...`);
+        try {
+          // Try common search URL patterns
+          const searchUrls = [
+            `${url}/search?q=${encodeURIComponent(query)}`,
+            `${url}/search?query=${encodeURIComponent(query)}`,
+            `${url}/pages/search-results?q=${encodeURIComponent(query)}`,
+          ];
+          
+          for (const searchUrl of searchUrls) {
+            await page.goto(searchUrl, { waitUntil: 'domcontentloaded' });
+            await new Promise(r => setTimeout(r, 3000));
+            
+            // Check if we got results (not a 404)
+            const pageContent = await page.content();
+            if (!pageContent.includes('Not Found') && !pageContent.includes('404')) {
+              console.log(`  [AI] ✓ Fallback search URL worked`);
+              searchSucceeded = true;
+              break;
+            }
+          }
+          
+          if (!searchSucceeded) {
+            console.log(`  [AI] All fallback URLs failed`);
+          }
+        } catch (fallbackError: any) {
+          console.log(`  [AI] Fallback failed: ${fallbackError.message?.substring(0, 50)}`);
+        }
       }
       
       // Dismiss post-search popups
