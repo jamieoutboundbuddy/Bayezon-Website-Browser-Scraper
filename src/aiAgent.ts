@@ -7,9 +7,10 @@
  */
 
 import { Stagehand } from '@browserbasehq/stagehand';
-import { z } from 'zod';
 import * as fs from 'fs';
 import * as path from 'path';
+import OpenAI from 'openai';
+import { getDb } from './db';
 
 // Types
 export interface AISearchResult {
@@ -36,6 +37,22 @@ export interface AISiteProfile {
   aiObservations: string;
 }
 
+
+// Lazy-loaded OpenAI client
+let openaiClient: OpenAI | null = null;
+
+function getOpenAIClient(): OpenAI {
+  if (!openaiClient) {
+    if (!process.env.OPENAI_API_KEY) {
+      throw new Error('OPENAI_API_KEY environment variable is not set');
+    }
+    openaiClient = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
+  }
+  return openaiClient;
+}
+
 // Artifact paths
 const ARTIFACTS_DIR = './artifacts';
 
@@ -48,9 +65,9 @@ function ensureArtifactsDir(jobId: string, domain: string): string {
   return dir;
 }
 
-function getArtifactPath(jobId: string, domain: string, stage: string): string {
+function getArtifactPath(jobId: string, domain: string, stage: string, ext: 'png' | 'jpg' = 'png'): string {
   const dir = ensureArtifactsDir(jobId, domain);
-  return path.join(dir, `${stage}.jpg`);
+  return path.join(dir, `${stage}.${ext}`);
 }
 
 /**
@@ -78,244 +95,76 @@ async function createStagehandSession(): Promise<Stagehand> {
   return stagehand;
 }
 
+
 /**
  * Dismiss any popups/modals on the page
- * Tries multiple times to ensure all popups are closed
+ * Aggressively tries multiple strategies to ensure all popups are closed
  */
 async function dismissPopups(stagehand: Stagehand, page: any): Promise<void> {
-  console.log('  [AI] Checking for popups...');
+  console.log('  [AI] Aggressively dismissing popups...');
   
-  // Try up to 3 times to dismiss any popups
-  for (let i = 0; i < 3; i++) {
+  // Wait longer for popups to appear (some load after page load)
+  await new Promise(resolve => setTimeout(resolve, 2000));
+  
+  // Try up to 5 times (increased from 3)
+  for (let i = 0; i < 5; i++) {
     try {
-      // Take a quick screenshot to see what's on screen
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Strategy 1: Try Escape key first (fastest)
+      await page.keyboard.press('Escape');
+      await new Promise(resolve => setTimeout(resolve, 800));
       
-      // Ask AI to close any visible popup
+      // Strategy 2: Ask AI to close visible popups
       const result = await stagehand.act(
-        "Look at the page. If you see any popup, modal, cookie banner, newsletter signup, or overlay that is blocking the main content, close it by clicking the X button, 'Close' button, 'Accept' button, 'Got it' button, or clicking outside the popup. If no popup is visible, do nothing."
+        "Look at the page carefully. If you see ANY popup, modal, cookie banner, newsletter signup, overlay, or dialog box that is blocking or covering the main content, close it immediately. Look for: X buttons, Close buttons, Accept/Agree buttons, 'Got it' buttons, 'No thanks' buttons, or click outside the popup. If NO popup is visible, do nothing."
       );
       
-      console.log(`  [AI] Popup check ${i + 1}: ${result.success ? 'action taken' : 'no popup found'}`);
+      // Wait for popup to close
+      await new Promise(resolve => setTimeout(resolve, 1500));
       
-      if (!result.success) {
-        // No popup found, we're done
+      // Strategy 3: Verify popup is gone by checking if main content is visible
+      const verifyResult = await stagehand.act(
+        "Check if the main page content (navigation menu, product grid, or main hero section) is clearly visible and not blocked by any popup or overlay. If content is blocked, try closing it again. If content is visible, confirm 'content visible'."
+      );
+      
+      // Check if verification was successful (no popup blocking content)
+      if (verifyResult.success) {
+        console.log(`  [AI] ✓ Popups dismissed (attempt ${i + 1})`);
         break;
       }
       
-      // Wait a bit for the popup to close
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      console.log(`  [AI] Popup check ${i + 1}: still present, retrying...`);
       
     } catch (e: any) {
       console.log(`  [AI] Popup check ${i + 1}: ${e.message || 'no action needed'}`);
-      break;
+      // Continue trying
     }
   }
-}
-
-/**
- * AI-powered site reconnaissance
- * The AI looks at the page and tells us what it sees
- */
-export async function aiAnalyzeSite(
-  jobId: string,
-  domain: string
-): Promise<{ profile: AISiteProfile; homepageScreenshotPath: string }> {
-  const stagehand = await createStagehandSession();
   
-  try {
-    const url = domain.startsWith('http') ? domain : `https://${domain}`;
-    console.log(`  [AI] Navigating to: ${url}`);
-    
-    // Get the page from context and navigate
-    const page = stagehand.context.pages()[0];
-    await page.goto(url, { waitUntil: 'domcontentloaded' });
-    // Wait for page to stabilize (don't use networkidle - many sites never become idle)
-    await new Promise(resolve => setTimeout(resolve, 4000));
-    
-    // Dismiss any popups
-    await dismissPopups(stagehand, page);
-    
-    // Screenshot homepage (after popups dismissed)
-    const homepageScreenshotPath = getArtifactPath(jobId, domain, 'homepage');
-    await page.screenshot({ path: homepageScreenshotPath, quality: 80, type: 'jpeg', fullPage: false });
-    console.log(`  [AI] ✓ Homepage screenshot saved`);
-    
-    // Use AI to analyze the site with structured extraction
-    console.log(`  [AI] Analyzing site structure...`);
-    
-    const analysisSchema = z.object({
-      companyName: z.string().describe('The company or brand name'),
-      industry: z.string().describe('The industry category like fashion, electronics, etc.'),
-      hasSearch: z.boolean().describe('Whether a search function is visible'),
-      searchType: z.enum(['visible_input', 'icon_triggered', 'hamburger_menu', 'none']),
-      visibleCategories: z.array(z.string()).describe('Main product categories visible'),
-      aiObservations: z.string().describe('Any other relevant observations'),
-    });
-    
-    const instruction = `Analyze this e-commerce website homepage and extract:
-      1. The company/brand name
-      2. What industry/category (fashion, electronics, home goods, etc.)
-      3. Whether there's a search function visible (look for search icons, search bars, magnifying glass icons, or "Search" text)
-      4. What type of search it is: 
-         - 'visible_input' if there's a search text input already visible on the page
-         - 'icon_triggered' if there's a magnifying glass icon or search icon that needs to be clicked
-         - 'hamburger_menu' if search is likely hidden in a hamburger/menu
-         - 'none' if no search is visible at all
-      5. List the main product categories visible in the navigation
-      6. Any other relevant observations about the site`;
-    
-    const result = await stagehand.extract(instruction, analysisSchema as any) as any;
-    
-    const siteProfile: AISiteProfile = {
-      companyName: result.companyName || 'Unknown',
-      industry: result.industry || 'Unknown',
-      hasSearch: result.hasSearch ?? false,
-      searchType: result.searchType || 'none',
-      visibleCategories: result.visibleCategories || [],
-      aiObservations: result.aiObservations || '',
-    };
-    
-    console.log(`  [AI] ✓ Site analyzed: ${siteProfile.companyName} (${siteProfile.industry})`);
-    console.log(`  [AI]   Search: ${siteProfile.hasSearch ? siteProfile.searchType : 'none'}`);
-    console.log(`  [AI]   Categories: ${siteProfile.visibleCategories.join(', ')}`);
-    
-    await stagehand.close();
-    
-    return {
-      profile: siteProfile,
-      homepageScreenshotPath,
-    };
-    
-  } catch (error) {
-    await stagehand.close();
-    throw error;
-  }
+  // Final wait to ensure everything is settled
+  await new Promise(resolve => setTimeout(resolve, 1000));
 }
 
+
 /**
- * AI-powered search execution
- * The AI figures out how to search on ANY site
+ * Simplified AI analysis result
  */
-export async function aiExecuteSearch(
-  jobId: string,
-  domain: string,
-  query: string,
-  label: string
-): Promise<AISearchResult> {
-  const stagehand = await createStagehandSession();
-  
-  try {
-    const url = domain.startsWith('http') ? domain : `https://${domain}`;
-    console.log(`  [AI] [${label.toUpperCase()}] Navigating to: ${url}`);
-    
-    const page = stagehand.context.pages()[0];
-    await page.goto(url, { waitUntil: 'domcontentloaded' });
-    // Wait for page to stabilize
-    await new Promise(resolve => setTimeout(resolve, 4000));
-    
-    // Dismiss popups first
-    await dismissPopups(stagehand, page);
-    
-    console.log(`  [AI] [${label.toUpperCase()}] Finding and using search...`);
-    
-    try {
-      // Step 1: Find and click on search (handles both visible inputs and icons)
-      console.log(`  [AI] [${label.toUpperCase()}] Step 1: Activating search...`);
-      await stagehand.act(
-        "Find and click on the search functionality. This could be a search input field, a magnifying glass icon, a search button, or any element that opens the search. Click on it to activate search."
-      );
-      
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      // Step 2: Type the search query
-      console.log(`  [AI] [${label.toUpperCase()}] Step 2: Typing query: "${query}"`);
-      await stagehand.act(
-        `Type the following text into the search input field: ${query}`
-      );
-      
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // Step 3: Submit the search
-      console.log(`  [AI] [${label.toUpperCase()}] Step 3: Submitting search...`);
-      await stagehand.act(
-        "Submit the search by pressing Enter or clicking the search/submit button"
-      );
-      
-      // Wait for results to load
-      console.log(`  [AI] [${label.toUpperCase()}] Waiting for results...`);
-      await new Promise(resolve => setTimeout(resolve, 4000));
-      
-      // Dismiss any new popups that appeared
-      await dismissPopups(stagehand, page);
-      
-      // Step 4: Screenshot results
-      const screenshotPath = getArtifactPath(jobId, domain, `results_${label}`);
-      
-      // Scroll down slightly to show products
-      await page.evaluate(() => window.scrollTo(0, 300));
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      await page.screenshot({ path: screenshotPath, quality: 80, type: 'jpeg', fullPage: false });
-      console.log(`  [AI] [${label.toUpperCase()}] ✓ Results screenshot saved`);
-      
-      // Step 5: Extract what we see on the results page
-      console.log(`  [AI] [${label.toUpperCase()}] Analyzing results...`);
-      
-      const resultsSchema = z.object({
-        resultCount: z.number().nullable().describe('Approximate number of products visible, null if unclear'),
-        productsFound: z.array(z.string()).describe('Names of products visible on the page'),
-        searchSuccess: z.boolean().describe('Whether this looks like a successful search results page with products'),
-        aiObservations: z.string().describe('Observations about the search results'),
-      });
-      
-      const resultsInstruction = `Analyze the current page which should show search results:
-        1. How many products are visible? (approximate count)
-        2. List the names/titles of products you can see (up to 10)
-        3. Does this look like a successful search results page with relevant products? Or is it an error page, empty results, or showing unrelated content?
-        4. Any observations about the quality or relevance of results`;
-        
-      const resultsData = await stagehand.extract(resultsInstruction, resultsSchema as any) as any;
-      
-      await stagehand.close();
-      
-      return {
-        query,
-        screenshotPath,
-        resultCount: resultsData.resultCount,
-        productsFound: resultsData.productsFound || [],
-        searchSuccess: resultsData.searchSuccess ?? false,
-        aiObservations: resultsData.aiObservations || '',
-      };
-      
-    } catch (searchError: any) {
-      console.log(`  [AI] [${label.toUpperCase()}] Search interaction failed: ${searchError.message}`);
-      
-      // Take a screenshot of whatever state we're in
-      const screenshotPath = getArtifactPath(jobId, domain, `results_${label}`);
-      await page.screenshot({ path: screenshotPath, quality: 80, type: 'jpeg' });
-      
-      await stagehand.close();
-      
-      return {
-        query,
-        screenshotPath,
-        resultCount: null,
-        productsFound: [],
-        searchSuccess: false,
-        aiObservations: `Search interaction failed: ${searchError.message}`,
-      };
-    }
-    
-  } catch (error) {
-    await stagehand.close();
-    throw error;
-  }
+export interface SimpleAnalysisResult {
+  domain: string;
+  brandSummary: string;
+  searchQuery: string;
+  screenshots: {
+    homepage: string;
+    results: string;
+  };
+  verdict: 'FAILED' | 'PARTIAL' | 'PASSED';
+  reasoning: string;
+  productsShown: string[];
+  resultCount: number | null;
 }
 
 /**
- * Full AI-powered analysis pipeline
- * Does everything: recon, query gen, search, evaluation
+ * Full AI-powered analysis pipeline - SIMPLIFIED
+ * Single browser session, 2 API calls, focused on proving NL search failure
  */
 export async function aiFullAnalysis(
   jobId: string,
@@ -333,157 +182,338 @@ export async function aiFullAnalysis(
   };
 }> {
   console.log(`\n[AI-FULL] ========================================`);
-  console.log(`[AI-FULL] Starting AI-powered analysis for: ${domain}`);
+  console.log(`[AI-FULL] Starting SIMPLIFIED analysis for: ${domain}`);
+  console.log(`[AI-FULL] Single session, 2 API calls`);
   console.log(`[AI-FULL] ========================================\n`);
   
-  // Phase 1: Reconnaissance
-  console.log(`[AI-FULL] Phase 1: Site Reconnaissance`);
-  const { profile: siteProfile, homepageScreenshotPath } = await aiAnalyzeSite(jobId, domain);
+  const openai = getOpenAIClient();
+  const stagehand = await createStagehandSession();
   
-  if (!siteProfile.hasSearch) {
-    console.log(`[AI-FULL] No search found on site, returning early`);
+  try {
+    const url = domain.startsWith('http') ? domain : `https://${domain}`;
+    const page = stagehand.context.pages()[0];
+    
+    // Step 1: Set viewport for quality screenshots
+    console.log(`[AI-FULL] Step 1: Setting up browser...`);
+    await page.setViewportSize(1920, 1080);
+    
+    // Step 2: Navigate to homepage
+    console.log(`[AI-FULL] Step 2: Navigating to ${url}...`);
+    await page.goto(url, { waitUntil: 'domcontentloaded' });
+    await new Promise(r => setTimeout(r, 3000)); // Let page stabilize
+    
+    // Step 3: Dismiss popups aggressively
+    console.log(`[AI-FULL] Step 3: Dismissing popups...`);
+    await dismissPopups(stagehand, page);
+    
+    // Step 4: Screenshot homepage (PNG, full page)
+    console.log(`[AI-FULL] Step 4: Capturing homepage screenshot...`);
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await new Promise(r => setTimeout(r, 500));
+    
+    const homepageScreenshotPath = getArtifactPath(jobId, domain, 'homepage', 'png');
+    await page.screenshot({ 
+      path: homepageScreenshotPath, 
+      fullPage: true, 
+      type: 'png'
+    });
+    console.log(`  [AI] ✓ Homepage screenshot saved: ${homepageScreenshotPath}`);
+    
+    // Step 5: Generate search query using domain knowledge (NO screenshot needed)
+    // gpt-5-mini knows what allbirds.com, nike.com etc. sell from training data
+    console.log(`[AI-FULL] Step 5: Generating search query (gpt-5-mini, text-only)...`);
+    
+    const queryPrompt = `You are researching ${domain} to generate a search query that tests their search functionality.
+
+First, recall what you know about ${domain}:
+- What do they sell?
+- What makes them unique?
+- Who is their target customer?
+
+Then generate ONE natural language search query a real customer would type.
+
+RULES:
+- Combine 2-3 constraints (use case + environment + preference)
+- Write as a statement/phrase, NOT a question
+- DO NOT use standalone category names (MEN, WOMEN, shoes, clothing)
+- Product type + real constraints is good
+
+GOOD EXAMPLES:
+- "lightweight sneakers for summer travel"
+- "comfortable walking shoes for hot weather"
+- "warm jacket for commuting not hiking"
+- "breathable shoes for standing all day"
+
+BAD EXAMPLES:
+- "men's shoes" (just category browsing)
+- "What do you recommend?" (question format - FORBIDDEN)
+- "I need something for MEN" (question format - FORBIDDEN)
+- "running shoes" (only one constraint)
+
+Return JSON only:
+{
+  "brand_summary": "What they sell in 1 sentence",
+  "search_query": "your query here"
+}`;
+
+    const researchStartTime = Date.now();
+    const researchResponse = await openai.chat.completions.create({
+      model: 'gpt-5-mini',
+      messages: [{ role: 'user', content: queryPrompt }],
+      max_tokens: 200,
+      temperature: 0.3
+    });
+    
+    const researchContent = researchResponse.choices[0].message.content || '{}';
+    let researchData: { brand_summary: string; search_query: string };
+    
+    try {
+      const jsonMatch = researchContent.match(/\{[\s\S]*\}/);
+      researchData = JSON.parse(jsonMatch ? jsonMatch[0] : '{}');
+    } catch (e) {
+      console.error('[AI-FULL] Failed to parse research response, using defaults');
+      researchData = {
+        brand_summary: 'E-commerce retailer',
+        search_query: 'comfortable everyday products'
+      };
+    }
+    
+    // Log to database
+    const db = getDb();
+    if (db) {
+      try {
+        await db.llmLog.create({
+          data: {
+            jobId,
+            domain,
+            phase: 'query_generation',
+            prompt: queryPrompt,
+            response: researchContent,
+            model: 'gpt-5-mini',
+            tokensUsed: researchResponse.usage?.total_tokens ?? null,
+            durationMs: Date.now() - researchStartTime
+          }
+        });
+      } catch (dbError) {
+        console.error('[AI-FULL] Failed to log:', dbError);
+      }
+    }
+    
+    const brandSummary = researchData.brand_summary || 'E-commerce retailer';
+    const searchQuery = researchData.search_query || 'comfortable everyday products';
+    
+    console.log(`  [AI] ✓ Brand: ${brandSummary}`);
+    console.log(`  [AI] ✓ Query: "${searchQuery}"`);
+    
+    // Build site profile for compatibility (assume search exists, we'll find out when we try)
+    const siteProfile: AISiteProfile = {
+      companyName: brandSummary.split(' ')[0] || 'Unknown',
+      industry: 'e-commerce',
+      hasSearch: true,  // Assume true, handle failure gracefully
+      searchType: 'icon_triggered',
+      visibleCategories: [],
+      aiObservations: brandSummary
+    };
+    
+    // Step 6: Execute search (in same session!)
+    console.log(`[AI-FULL] Step 6: Executing search...`);
+    
+    try {
+      // Find and activate search
+      console.log(`  [AI] Finding search...`);
+      await stagehand.act("Find and click the search icon or search input field");
+      await new Promise(r => setTimeout(r, 1000));
+      
+      // Type the query
+      console.log(`  [AI] Typing query: "${searchQuery}"`);
+      await stagehand.act(`Type: ${searchQuery}`);
+      await new Promise(r => setTimeout(r, 500));
+      
+      // Submit search
+      console.log(`  [AI] Submitting search...`);
+      await stagehand.act("Press Enter or click the search button to submit");
+      await new Promise(r => setTimeout(r, 4000)); // Wait for results
+      
+    } catch (searchError: any) {
+      console.log(`  [AI] Search interaction issue: ${searchError.message}`);
+      // Continue anyway - we'll screenshot whatever state we're in
+    }
+    
+    // Step 7: Dismiss popups AGAIN after search
+    console.log(`[AI-FULL] Step 7: Dismissing post-search popups...`);
+    await dismissPopups(stagehand, page);
+    
+    // Step 8: Screenshot results (PNG, full page)
+    console.log(`[AI-FULL] Step 8: Capturing results screenshot...`);
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await new Promise(r => setTimeout(r, 500));
+    
+    const resultsScreenshotPath = getArtifactPath(jobId, domain, 'results', 'png');
+    await page.screenshot({ 
+      path: resultsScreenshotPath, 
+      fullPage: true, 
+      type: 'png'
+    });
+    console.log(`  [AI] ✓ Results screenshot saved: ${resultsScreenshotPath}`);
+    
+    // Step 9: Evaluate results (ONE API call)
+    console.log(`[AI-FULL] Step 9: Evaluating search results...`);
+    const resultsBase64 = fs.readFileSync(resultsScreenshotPath).toString('base64');
+    
+    const evalPrompt = `You are evaluating if an e-commerce search handled this natural language query well.
+
+QUERY: "${searchQuery}"
+
+Look at the search results screenshot and answer:
+
+1. Did the site understand the INTENT behind the query?
+2. Are the results RELEVANT to all constraints in the query?
+3. Or did it just do basic keyword matching / show generic results?
+
+VERDICT OPTIONS:
+- "FAILED" - Results don't match intent, generic/irrelevant products, or no results
+- "PARTIAL" - Some relevant results but missed key constraints  
+- "PASSED" - Results clearly address the multi-constraint query
+
+Return JSON:
+{
+  "verdict": "FAILED" or "PARTIAL" or "PASSED",
+  "result_count": number or null,
+  "products_shown": ["product 1", "product 2", ...],
+  "reasoning": "Brief explanation of why the search failed/passed"
+}`;
+
+    const evalStartTime = Date.now();
+    const evalResponse = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: evalPrompt },
+            { 
+              type: 'image_url', 
+              image_url: { 
+                url: `data:image/png;base64,${resultsBase64}`,
+                detail: 'low'
+              } 
+            }
+          ]
+        }
+      ],
+      max_tokens: 500,
+      temperature: 0
+    });
+    
+    const evalContent = evalResponse.choices[0].message.content || '{}';
+    let evalData: { verdict: string; result_count: number | null; products_shown: string[]; reasoning: string };
+    
+    try {
+      const jsonMatch = evalContent.match(/\{[\s\S]*\}/);
+      evalData = JSON.parse(jsonMatch ? jsonMatch[0] : '{}');
+    } catch (e) {
+      console.error('[AI-FULL] Failed to parse eval response, using defaults');
+      evalData = {
+        verdict: 'FAILED',
+        result_count: null,
+        products_shown: [],
+        reasoning: 'Could not evaluate search results'
+      };
+    }
+    
+    // Log to database
+    if (db) {
+      try {
+        await db.llmLog.create({
+          data: {
+            jobId,
+            domain,
+            phase: 'search_evaluation',
+            prompt: evalPrompt,
+            response: evalContent,
+            model: 'gpt-4o',
+            tokensUsed: evalResponse.usage?.total_tokens ?? null,
+            durationMs: Date.now() - evalStartTime
+          }
+        });
+      } catch (dbError) {
+        console.error('[AI-FULL] Failed to log:', dbError);
+      }
+    }
+    
+    const verdict = (evalData.verdict || 'FAILED').toUpperCase() as 'FAILED' | 'PARTIAL' | 'PASSED';
+    const resultCount = evalData.result_count;
+    const productsShown = evalData.products_shown || [];
+    const reasoning = evalData.reasoning || 'No reasoning provided';
+    
+    console.log(`  [AI] ✓ Verdict: ${verdict}`);
+    console.log(`  [AI] ✓ Reasoning: ${reasoning}`);
+    
+    await stagehand.close();
+    
+    // Map to legacy format for compatibility
+    console.log(`\n[AI-FULL] ========================================`);
+    console.log(`[AI-FULL] VERDICT: ${verdict === 'FAILED' ? 'OUTREACH' : verdict === 'PARTIAL' ? 'REVIEW' : 'SKIP'}`);
+    console.log(`[AI-FULL] Reason: ${reasoning}`);
+    console.log(`[AI-FULL] ========================================\n`);
+    
     return {
       siteProfile,
-      nlQuery: '',
-      kwQuery: '',
+      nlQuery: searchQuery,
+      kwQuery: '', // No KW search in simplified flow
       searchResults: {
-        naturalLanguage: { query: '', screenshotPath: '', resultCount: null, productsFound: [], searchSuccess: false, aiObservations: 'No search on site' },
-        keyword: { query: '', screenshotPath: '', resultCount: null, productsFound: [], searchSuccess: false, aiObservations: 'No search on site' },
-        homepageScreenshotPath,
+        naturalLanguage: {
+          query: searchQuery,
+          screenshotPath: resultsScreenshotPath,
+          resultCount,
+          productsFound: productsShown,
+          searchSuccess: verdict !== 'FAILED',
+          aiObservations: reasoning
+        },
+        keyword: {
+          query: '',
+          screenshotPath: '',
+          resultCount: null,
+          productsFound: [],
+          searchSuccess: false,
+          aiObservations: 'Keyword search removed in simplified flow'
+        },
+        homepageScreenshotPath
       },
       comparison: {
-        nlRelevance: 'none',
+        nlRelevance: verdict === 'PASSED' ? 'high' : verdict === 'PARTIAL' ? 'medium' : 'low',
         kwRelevance: 'none',
-        verdict: 'INCONCLUSIVE',
-        reason: 'No search functionality detected on site',
-      },
+        verdict: verdict === 'FAILED' ? 'OUTREACH' : verdict === 'PARTIAL' ? 'REVIEW' : 'SKIP',
+        reason: reasoning
+      }
     };
+    
+  } catch (error) {
+    await stagehand.close();
+    throw error;
   }
-  
-  // Phase 2: Generate queries based on what we see
-  console.log(`\n[AI-FULL] Phase 2: Query Generation`);
-  const nlQuery = generateNLQuery(siteProfile);
-  const kwQuery = generateKWQuery(siteProfile);
-  console.log(`  [AI] NL Query: "${nlQuery}"`);
-  console.log(`  [AI] KW Query: "${kwQuery}"`);
-  
-  // Wait for rate limit between sessions
-  console.log(`\n[AI-FULL] Waiting for session cooldown (5s)...`);
-  await new Promise(resolve => setTimeout(resolve, 5000));
-  
-  // Phase 3: Execute searches
-  console.log(`\n[AI-FULL] Phase 3: Natural Language Search`);
-  const nlResult = await aiExecuteSearch(jobId, domain, nlQuery, 'nl');
-  
-  // Wait between sessions
-  console.log(`\n[AI-FULL] Waiting for session cooldown (5s)...`);
-  await new Promise(resolve => setTimeout(resolve, 5000));
-  
-  console.log(`\n[AI-FULL] Phase 4: Keyword Search`);
-  const kwResult = await aiExecuteSearch(jobId, domain, kwQuery, 'kw');
-  
-  // Phase 5: Compare and Evaluate
-  console.log(`\n[AI-FULL] Phase 5: Evaluation`);
-  const comparison = evaluateSearchResults({
-    naturalLanguage: nlResult,
-    keyword: kwResult,
-    homepageScreenshotPath,
-  });
-  
-  console.log(`\n[AI-FULL] ========================================`);
-  console.log(`[AI-FULL] VERDICT: ${comparison.verdict}`);
-  console.log(`[AI-FULL] Reason: ${comparison.reason}`);
-  console.log(`[AI-FULL] ========================================\n`);
-  
+}
+
+/**
+ * Build result for sites with no search functionality
+ */
+function buildNoSearchResult(siteProfile: AISiteProfile, homepageScreenshotPath: string) {
   return {
     siteProfile,
-    nlQuery,
-    kwQuery,
+    nlQuery: '',
+    kwQuery: '',
     searchResults: {
-      naturalLanguage: nlResult,
-      keyword: kwResult,
+      naturalLanguage: { query: '', screenshotPath: '', resultCount: null, productsFound: [], searchSuccess: false, aiObservations: 'No search on site' },
+      keyword: { query: '', screenshotPath: '', resultCount: null, productsFound: [], searchSuccess: false, aiObservations: 'No search on site' },
       homepageScreenshotPath,
     },
-    comparison,
+    comparison: {
+      nlRelevance: 'none' as const,
+      kwRelevance: 'none' as const,
+      verdict: 'INCONCLUSIVE' as const,
+      reason: 'No search functionality detected on site',
+    },
   };
 }
 
-/**
- * Generate a natural language query based on site profile
- */
-function generateNLQuery(profile: AISiteProfile): string {
-  const category = profile.visibleCategories[0] || profile.industry;
-  
-  const templates = [
-    `I'm looking for a gift for my friend who loves ${category}`,
-    `What do you recommend for someone interested in ${category}?`,
-    `I need something special in ${category}, any suggestions?`,
-    `Looking for the best ${category} items you have`,
-    `Help me find something nice in ${category}`,
-  ];
-  
-  return templates[Math.floor(Math.random() * templates.length)];
-}
 
-/**
- * Generate a keyword query based on site profile
- */
-function generateKWQuery(profile: AISiteProfile): string {
-  const category = profile.visibleCategories[0] || profile.industry;
-  return category.toLowerCase().replace(/[^a-z0-9\s]/g, '').trim();
-}
-
-/**
- * Evaluate search results and determine verdict
- */
-function evaluateSearchResults(results: AIDualSearchResult): {
-  nlRelevance: 'high' | 'medium' | 'low' | 'none';
-  kwRelevance: 'high' | 'medium' | 'low' | 'none';
-  verdict: 'OUTREACH' | 'SKIP' | 'REVIEW' | 'INCONCLUSIVE';
-  reason: string;
-} {
-  const nl = results.naturalLanguage;
-  const kw = results.keyword;
-  
-  // Determine relevance based on what the AI observed
-  const nlRelevance = determineRelevance(nl);
-  const kwRelevance = determineRelevance(kw);
-  
-  console.log(`  [AI] NL Search: ${nlRelevance} (${nl.productsFound.length} products, success: ${nl.searchSuccess})`);
-  console.log(`  [AI] KW Search: ${kwRelevance} (${kw.productsFound.length} products, success: ${kw.searchSuccess})`);
-  
-  // Determine verdict
-  let verdict: 'OUTREACH' | 'SKIP' | 'REVIEW' | 'INCONCLUSIVE';
-  let reason: string;
-  
-  if (!nl.searchSuccess && !kw.searchSuccess) {
-    verdict = 'INCONCLUSIVE';
-    reason = 'Could not complete searches on this site - both searches failed';
-  } else if (nlRelevance === 'none' && kwRelevance !== 'none') {
-    verdict = 'OUTREACH';
-    reason = `Natural language search failed (${nl.aiObservations}) but keyword search returned ${kw.productsFound.length} products`;
-  } else if (nlRelevance === 'low' && (kwRelevance === 'medium' || kwRelevance === 'high')) {
-    verdict = 'OUTREACH';
-    reason = `Keyword search (${kw.productsFound.length} products) significantly outperforms NL search (${nl.productsFound.length} products)`;
-  } else if (nlRelevance === kwRelevance) {
-    verdict = 'SKIP';
-    reason = `Both search types perform similarly (${nl.productsFound.length} vs ${kw.productsFound.length} products)`;
-  } else if (nlRelevance === 'high') {
-    verdict = 'SKIP';
-    reason = `Natural language search works well - returned ${nl.productsFound.length} relevant products`;
-  } else {
-    verdict = 'REVIEW';
-    reason = `NL: ${nlRelevance} (${nl.productsFound.length}), KW: ${kwRelevance} (${kw.productsFound.length}) - needs manual review`;
-  }
-  
-  return { nlRelevance, kwRelevance, verdict, reason };
-}
-
-function determineRelevance(result: AISearchResult): 'high' | 'medium' | 'low' | 'none' {
-  if (!result.searchSuccess) return 'none';
-  if (result.resultCount === null && result.productsFound.length === 0) return 'none';
-  if (result.productsFound.length >= 5) return 'high';
-  if (result.productsFound.length >= 2) return 'medium';
-  if (result.productsFound.length >= 1) return 'low';
-  return 'none';
-}
