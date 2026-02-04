@@ -523,7 +523,7 @@ Answer in 2-4 words only. Examples:
       }
       
       // ============================================================
-      // SIMPLIFIED SEARCH - Two explicit steps: TYPE then SUBMIT
+      // SEARCH - Three steps: OPEN, TYPE, SUBMIT
       // ============================================================
       console.log(`  [AI] Executing search for: "${query}"`);
       
@@ -531,18 +531,27 @@ Answer in 2-4 words only. Examples:
       await dismissPopups(stagehand, page);
       
       try {
-        // Step 1: Click search and type the query
-        console.log(`  [AI] Step 1: Finding search and typing...`);
+        // Step 1: Click to open search (icon, button, or input)
+        console.log(`  [AI] Step 1: Opening search...`);
         await stagehand.act(
-          `Click on the search input field or search icon to open search, then type: ${query}`
+          `Click the search icon or search button in the header to open the search interface`
         );
         
-        await new Promise(r => setTimeout(r, 1000));
+        // Wait for search interface to fully appear
+        await new Promise(r => setTimeout(r, 2000));
         
-        // Step 2: EXPLICITLY press Enter to submit the search
-        console.log(`  [AI] Step 2: Pressing Enter to submit...`);
+        // Step 2: Type into the NOW VISIBLE search input
+        console.log(`  [AI] Step 2: Typing query into search input...`);
         await stagehand.act(
-          `Press the Enter key on the keyboard to submit the search and go to the results page`
+          `Type "${query}" into the search input field that is currently visible on the page`
+        );
+        
+        await new Promise(r => setTimeout(r, 500));
+        
+        // Step 3: Submit the search
+        console.log(`  [AI] Step 3: Submitting search...`);
+        await stagehand.act(
+          `Press Enter to submit the search`
         );
         
         // Wait for results page to load
