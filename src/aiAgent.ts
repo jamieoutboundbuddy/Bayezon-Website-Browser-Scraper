@@ -187,11 +187,11 @@ async function generateNextQuery(
     : '';
   
   const difficultyGuidance = {
-    1: 'EASY: Simple product + one use case (e.g., "comfy everyday shoes")',
-    2: 'MEDIUM: Product + 2 constraints (e.g., "soft boxers for gym")',
-    3: 'HARDER: Abstract/lifestyle intent (e.g., "underwear for lazy weekends")',
-    4: 'HARD: Pop culture or themed request (e.g., "superhero themed boxers")',
-    5: 'HARDEST: Edge case that requires semantic understanding (e.g., "action hero underwear")',
+    1: 'EASY: Simple product + use case (e.g., "shoes for work")',
+    2: 'MEDIUM: Product + occasion (e.g., "dress for beach party")',
+    3: 'HARDER: Lifestyle intent (e.g., "festival outfit")',
+    4: 'HARD: Pop culture reference (e.g., "superhero underwear")',
+    5: 'HARDEST: Abstract concept (e.g., "action figure themed boxers")',
   }[attempt] || 'Generate a challenging query';
   
   const prompt = `Generate query #${attempt} to test ${domain}'s search.
@@ -201,19 +201,19 @@ DIFFICULTY LEVEL: ${attempt}/5 - ${difficultyGuidance}
 ${previousContext}
 
 ${attempt > 1 ? `
-The previous ${attempt - 1} queries all worked. Generate a HARDER query that might expose a weakness.
-Think about:
-- Abstract concepts the search might not understand
+Previous queries passed. Generate HARDER query that might expose weakness:
 - Pop culture references
-- Lifestyle/occasion-based requests
-- Unusual attribute combinations
+- Abstract lifestyle concepts
+- Specific occasion/event needs
 ` : ''}
 
 RULES:
-- MAX 7 words
-- Sound natural, like a real person
-- NO flowery language
-- Target potential weakness in keyword-based search
+- MAX 5 words
+- Sound like a REAL shopper, not a copywriter
+- NO filler words: "comfortable", "trendy", "stylish", "quality", "perfect", "soft", "cozy", "casual"
+- DIRECT product + purpose/occasion
+- Examples of GOOD: "shoes for hiking", "dress for wedding", "swimwear for surfing"
+- Examples of BAD: "comfortable shoes for walking", "trendy beachwear for festival"
 
 Return ONLY JSON:
 {"query": "your search query here"}`;
@@ -236,13 +236,13 @@ Return ONLY JSON:
     console.error(`  [AI] Query generation failed: ${e.message}`);
   }
   
-  // Fallback queries by difficulty
+  // Fallback queries by difficulty - no filler words
   const fallbacks = [
-    'comfortable everyday option',
-    'soft and breathable daily',
-    'weekend lounging comfort',
-    'superhero style casual',
-    'action figure themed'
+    'shoes for work',
+    'outfit for beach',
+    'gift for dad',
+    'superhero underwear',
+    'retro video game shirt'
   ];
   return fallbacks[attempt - 1] || fallbacks[0];
 }
@@ -264,27 +264,34 @@ async function evaluateSearchResults(
   screenshotBase64: string
 ): Promise<EvaluationResult> {
   
-  const prompt = `Evaluate if this e-commerce PRODUCT search returned actual products.
+  const prompt = `Evaluate if this e-commerce search returned RELEVANT products for the query.
 
 QUERY: "${query}"
 
-CRITICAL: The user is searching for PRODUCTS to buy, not blog posts, guides, or articles.
+BE STRICT about relevance. The search should understand INTENT, not just keywords.
 
-Check these in order:
+EVALUATE:
 1. Are there 0 results shown? → SIGNIFICANT FAILURE
-2. Are the results BLOG POSTS, GUIDES, or ARTICLES instead of products? → SIGNIFICANT FAILURE
-   (Look for signs like "Tips:", "Guide:", "How to", article headlines, no prices, no "Add to Cart")
-3. Are the results actual PRODUCTS but completely irrelevant? → SIGNIFICANT FAILURE
-4. Are the results actual PRODUCTS that match the query? → PASSED
+2. Are results BLOG POSTS/GUIDES/ARTICLES instead of products? → SIGNIFICANT FAILURE
+3. Are results products but WRONG for the query intent? → SIGNIFICANT FAILURE
+
+RELEVANCE EXAMPLES:
+- Query "festival outfit" → Generic midi dresses = FAIL (not festival style)
+- Query "festival outfit" → Crop tops, shorts, boho styles = PASS
+- Query "hiking shoes" → Dress shoes = FAIL
+- Query "hiking shoes" → Trail runners, boots = PASS
+- Query "beach wedding dress" → Casual sundresses = FAIL
+- Query "beach wedding dress" → Flowy white/ivory dresses = PASS
 
 SIGNIFICANT FAILURE if:
 - Zero results
-- Results are content/articles/guides (NOT buyable products)
-- Results are products but completely wrong category
+- Results are content/articles (not products)
+- Results are products but DON'T MATCH THE INTENT of the query
+- Results are generic/basic products when query asked for something specific
 
 PASSED only if:
-- Results show actual purchasable products (with prices, buy buttons, product images)
-- Products are relevant to what the user searched for
+- Results show actual purchasable products (with prices)
+- Products GENUINELY fit what someone searching that query would want
 
 Return JSON:
 {
@@ -292,7 +299,7 @@ Return JSON:
   "result_count": number or null,
   "result_type": "products" | "articles" | "mixed" | "none",
   "products_shown": ["product 1", "product 2", ...],
-  "reasoning": "Brief explanation"
+  "reasoning": "Why products do/don't match the search intent"
 }`;
 
   try {
@@ -448,9 +455,29 @@ export async function aiFullAnalysis(
     // Dismiss popups
     await dismissPopups(stagehand, page);
     
-    // Screenshot homepage
+    // Screenshot homepage - wait for images to load first
     console.log(`[ADVERSARIAL] Capturing homepage...`);
     await page.evaluate(() => window.scrollTo(0, 0));
+    await new Promise(r => setTimeout(r, 1000));
+    
+    // Wait for images to load
+    try {
+      await page.evaluate(async () => {
+        const images = Array.from(document.querySelectorAll('img'));
+        await Promise.race([
+          Promise.all(images.slice(0, 20).map(img => {
+            if (img.complete) return Promise.resolve();
+            return new Promise(resolve => {
+              img.onload = resolve;
+              img.onerror = resolve;
+            });
+          })),
+          new Promise(resolve => setTimeout(resolve, 5000)) // Max 5s wait
+        ]);
+      });
+    } catch {
+      // Ignore image loading errors
+    }
     await new Promise(r => setTimeout(r, 500));
     
     const homepageScreenshotPath = getArtifactPath(jobId, domain, 'homepage', 'png');
@@ -674,9 +701,30 @@ Answer in 2-4 words only. Examples:
         console.log(`  [AI] ✓ On results page: ${finalUrl}`);
       }
       
-      // Screenshot results (or homepage if search failed)
+      // Wait for images to load before screenshot
+      console.log(`  [AI] Waiting for images to load...`);
       await activePage.evaluate(() => window.scrollTo(0, 0));
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise(r => setTimeout(r, 1000));
+      
+      // Wait for images to actually load
+      try {
+        await activePage.evaluate(async () => {
+          const images = Array.from(document.querySelectorAll('img'));
+          await Promise.race([
+            Promise.all(images.slice(0, 20).map(img => {
+              if (img.complete) return Promise.resolve();
+              return new Promise(resolve => {
+                img.onload = resolve;
+                img.onerror = resolve;
+              });
+            })),
+            new Promise(resolve => setTimeout(resolve, 5000)) // Max 5s wait
+          ]);
+        });
+      } catch {
+        // Ignore image loading errors
+      }
+      await new Promise(r => setTimeout(r, 1000)); // Extra buffer
       
       const resultsScreenshotPath = getArtifactPath(jobId, domain, `results_${attempt}`, 'png');
       await activePage.screenshot({ 
