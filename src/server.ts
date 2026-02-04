@@ -379,11 +379,11 @@ app.post('/api/analyze', async (req: Request, res: Response) => {
     // Use AI Agent (Stagehand) for the entire analysis - this works on ANY website
     const aiResult = await aiFullAnalysis(jobId, domain);
     
-    // Build screenshot URLs (matches aiAgent output: homepage + results)
+    // Build screenshot URLs (frontend expects results_nl for NL search results)
     const baseUrl = getBaseUrl(req);
     const screenshotUrls: Record<string, string> = {
       homepage: `${baseUrl}${getArtifactUrl(jobId, domainName, 'homepage')}`,
-      results: `${baseUrl}${getArtifactUrl(jobId, domainName, 'results')}`
+      results_nl: `${baseUrl}${getArtifactUrl(jobId, domainName, 'results')}`
     };
     
     // Convert AI Agent result to SmartAnalysisResult format

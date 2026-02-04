@@ -252,33 +252,28 @@ export async function aiFullAnalysis(
     // Extract domain name for brand lookup
     const brandName = domain.replace(/^www\./, '').replace(/\.(com|co\.uk|net|org).*$/, '');
     
-    const queryPrompt = `Generate a search query to test if ${domain} can handle natural language search.
+    const queryPrompt = `Generate a SHORT search query to test ${domain}'s search.
 
-BRAND CONTEXT (use your knowledge):
-${brandName} - recall what they sell, their unique value, target customer.
+BRAND: ${brandName}
 
-YOUR TASK:
-Create ONE search query that combines 2-3 constraints (use case + environment/season + preference).
-The query should test if their search understands INTENT, not just keywords.
-
-EXAMPLES BY BRAND:
-- allbirds.com → "comfy trainers for city walking in summer"
-- nike.com → "all day walking shoes for hot weather"  
-- patagonia.com → "everyday jacket for cold weather but not hiking"
-- lululemon.com → "comfortable trousers for travel days"
-- everlane.com → "simple everyday shoes that go with everything"
-- ikea.com → "small sofa comfortable for everyday use"
-- uniqlo.com → "warm clothes for winter layering"
-- away.com → "carry-on suitcase for short trips"
+EXAMPLES (notice they're SHORT - 4-7 words max):
+- allbirds.com → "comfy shoes for summer"
+- nike.com → "walking shoes hot weather"  
+- patagonia.com → "light jacket not too warm"
+- lululemon.com → "travel pants comfortable"
+- everlane.com → "everyday shoes casual"
+- ikea.com → "small couch for apartment"
+- uniqlo.com → "warm layers winter"
+- away.com → "carry-on weekend trips"
 
 RULES:
-- Sound like natural human speech (NOT a question, NOT a command)
-- Must include 2-3 real constraints
-- NEVER use standalone categories (men, women, shoes, pants)
-- Product type + context/use-case + preference = good
+- MAX 7 words
+- Sound like a real person typing quickly
+- NO flowery language, NO "that are easy on the planet"
+- Just product + 1-2 simple constraints
 
-Return ONLY this JSON (no other text):
-{"brand_summary": "one sentence about what they sell", "search_query": "your multi-constraint query"}`;
+Return ONLY JSON:
+{"brand_summary": "what they sell", "search_query": "your short query"}`;
 
     const researchStartTime = Date.now();
     let researchContent = '';
@@ -325,21 +320,21 @@ Return ONLY this JSON (no other text):
       console.error(`[AI-FULL] Error type: ${e.constructor?.name || 'unknown'}`);
       console.error(`[AI-FULL] Raw response was: "${researchContent || '(empty)'}"`);
       
-      // Brand-specific fallbacks instead of generic garbage
+      // Brand-specific fallbacks - SHORT and natural
       const fallbacks: Record<string, { brand: string; query: string }> = {
-        'allbirds': { brand: 'Sustainable comfort footwear', query: 'comfy trainers for city walking in summer' },
-        'nike': { brand: 'Athletic footwear and apparel', query: 'all day walking shoes for hot weather' },
-        'patagonia': { brand: 'Outdoor clothing and gear', query: 'everyday jacket for cold weather but not hiking' },
-        'lululemon': { brand: 'Athletic apparel', query: 'comfortable trousers for travel days' },
-        'everlane': { brand: 'Modern essentials clothing', query: 'simple everyday shoes that go with everything' },
-        'ikea': { brand: 'Home furnishings', query: 'small sofa comfortable for everyday use' },
-        'uniqlo': { brand: 'Casual everyday clothing', query: 'warm clothes for winter layering' },
-        'away': { brand: 'Travel luggage', query: 'carry-on suitcase for short trips' },
+        'allbirds': { brand: 'Sustainable footwear', query: 'comfy shoes for summer' },
+        'nike': { brand: 'Athletic footwear', query: 'walking shoes hot weather' },
+        'patagonia': { brand: 'Outdoor gear', query: 'light jacket not too warm' },
+        'lululemon': { brand: 'Athletic apparel', query: 'travel pants comfortable' },
+        'everlane': { brand: 'Modern essentials', query: 'everyday shoes casual' },
+        'ikea': { brand: 'Home furnishings', query: 'small couch for apartment' },
+        'uniqlo': { brand: 'Casual clothing', query: 'warm layers winter' },
+        'away': { brand: 'Travel luggage', query: 'carry-on weekend trips' },
       };
       
       const fallback = fallbacks[brandName.toLowerCase()] || { 
         brand: 'E-commerce retailer', 
-        query: 'lightweight comfortable option for everyday use' 
+        query: 'comfortable everyday option' 
       };
       
       researchData = {
