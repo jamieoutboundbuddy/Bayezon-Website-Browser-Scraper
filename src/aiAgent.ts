@@ -179,90 +179,141 @@ async function generateNextQuery(
 ): Promise<string> {
   const { domain, brandSummary, attempt, previousQueries } = context;
   
-  // Build context from previous attempts
-  const previousContext = previousQueries.length > 0
-    ? `\nPREVIOUS QUERIES (all passed - need HARDER query):\n${previousQueries.map(q => 
-        `- "${q.query}" → ${q.resultCount || '?'} results, ${q.passed ? 'PASSED' : 'FAILED'}`
-      ).join('\n')}`
-    : '';
-  
-  const difficultyGuidance = {
-    1: 'EASY: Product + simple use case',
-    2: 'MEDIUM: Product + specific situation/condition',
-    3: 'HARDER: Abstract need or lifestyle intent',
-    4: 'HARD: Unusual constraint or edge case',
-    5: 'HARDEST: Very specific multi-constraint need',
-  }[attempt] || 'Generate a challenging query';
-  
-  const prompt = `Generate query #${attempt} to test ${domain}'s search.
+  // Universal Commerce Search Probe Generator - improved prompt
+  const prompt = `Role
+You are a normal customer visiting an ecommerce website for the first time.
+You do not know the brand's internal categories, product names, or filters.
+You think in terms of problems, outcomes, and situations, not SKUs.
 
-BRAND SELLS: ${brandSummary}
-DIFFICULTY: ${attempt}/5 - ${difficultyGuidance}
-${previousContext}
+Domain/Brand: ${brandSummary}
+Query Attempt: ${attempt}/5
 
-CRITICAL: Generate queries RELEVANT to what this brand actually sells!
-- If they sell casual sneakers, don't search for "formal shoes" or "dress shoes"
-- If they sell underwear, don't search for "shoes" or "jackets"
-- The query should be something a REAL customer of THIS brand would search
+Task
+Generate ONE natural-language search query that a real human would type into the site's search bar to find a relevant product.
+
+The query must:
+- Sound natural and conversational
+- Use a generic product noun appropriate for the domain
+- Combine multiple human constraints, not just one
+- Require interpretation, reasoning, or clarification to answer well
+- Reveal a limitation of keyword-based search (results may exist, but correctness is unclear)
 
 ${attempt === 1 ? `
-For attempt 1, test a simple natural language search that matches their products:
-- Allbirds (casual shoes) → "running shoes for travel"
-- PSD (underwear) → "boxers for working out"
-- Fashion brand → "dress for beach wedding"
-` : ''}
+For Attempt 1, start with a straightforward multi-constraint query:
+- Problem/outcome + context or body compatibility
+- Example: "shoes that don't irritate for everyday wear"
+- Example: "underwear that stays put for gym"
+- Example: "jacket that works for both casual and professional"
+` : `
+For Attempt ${attempt}, make it progressively harder:
+- Add more abstract constraints (${attempt === 2 ? 'feelings + situation' : attempt === 3 ? 'multiple outcomes' : attempt === 4 ? 'edge cases' : 'very specific needs'})
+- Mix feelings/outcomes with situations
+- Example: "something that works for both casual and professional settings"
+- Example: "the best option for sensitive skin without irritation"
+- Example: "shoes I can wear all day without foot pain"
+`}
 
-${attempt > 1 ? `
-Previous queries passed. Try HARDER natural language that keyword search might miss:
-- Weather/condition: "shoes for rainy days", "jacket for cold mornings"
-- Feeling/outcome: "underwear that doesn't ride up", "shoes for standing all day"
-- Lifestyle: "outfit for first date", "gift for runner"
-` : ''}
+Allowed constraint types (use 2-3):
+1. Problem/outcome: doesn't irritate, lasts longer, more comfortable, fixes a specific issue, safer/gentler/stronger
+2. Context/situation: everyday use, work, travel, first-time use, replacement/upgrade, all-day wear
+3. Body/object compatibility: skin type, hair type, body type, room size, material, foot shape
+4. Constraints/exclusions: but not ___, without ___, doesn't ___
+5. Comparison/uncertainty: better than what I'm using, safest option, best option for ___
+6. Experience level: beginner, sensitive, low maintenance
 
-RULES:
-- MAX 5 words
-- Must be RELEVANT to ${brandSummary}
-- NO filler words: comfortable, trendy, stylish, quality, perfect, best
-- Test NATURAL LANGUAGE understanding, not random products they don't sell
+Hard rules:
+- Do not use brand names
+- Do not use internal product names or categories
+- Do not use exact SKUs or part numbers
+- Do not explain the query
+- Keep it 5-12 words max
 
-Return ONLY JSON:
-{"query": "your search query here"}`;
+Output format: Plain text. One line only. No JSON, no explanation.
+
+Why this works: Write the query so that a reasonable person would ask "Okay, but how would a search engine know which one is right?"
+
+NOW: Generate a NEW challenging query for someone shopping at ${brandSummary}`;
 
   try {
     const response = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [{ role: 'user', content: prompt }],
-      max_tokens: 100,
-      temperature: 0.8  // Higher temp for variety
+      max_tokens: 150,
+      temperature: 0.85  // Higher temp for variety and more natural queries
     });
     
     const content = response.choices[0]?.message?.content || '';
+    // Now expects plain text, not JSON
+    const query = content
+      .trim()
+      .split('\n')[0]  // Take first line
+      .replace(/^["']|["']$/g, '')  // Remove quotes if present
+      .substring(0, 120);
+    
+    if (query && query.length > 5 && !query.includes('{')) {
+      console.log(`  [AI] Generated query ${attempt}: "${query}"`);
+      return query;
+    }
+    
+    // Fallback to parsing JSON if response looks like JSON
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       const data = JSON.parse(jsonMatch[0]);
-      return data.query || 'comfortable everyday products';
+      return data.query || '';
     }
   } catch (e: any) {
     console.error(`  [AI] Query generation failed: ${e.message}`);
   }
   
-  // Fallback queries based on brand category
+  // Fallback queries based on brand category with multi-constraint approach
   const brandLower = brandSummary.toLowerCase();
   let fallbacks: string[];
   
   if (brandLower.includes('shoe') || brandLower.includes('footwear') || brandLower.includes('sneaker')) {
-    fallbacks = ['shoes for travel', 'sneakers for rainy days', 'shoes for standing all day', 'running shoes that breathe', 'slip-on for errands'];
+    fallbacks = [
+      'shoes that don\'t irritate for everyday wear',
+      'sneakers I can wear all day without pain',
+      'shoes for travel that pack light',
+      'running shoes for someone with flat feet',
+      'slip-ons that work for both casual and work'
+    ];
   } else if (brandLower.includes('underwear') || brandLower.includes('boxer') || brandLower.includes('brief')) {
-    fallbacks = ['boxers for gym', 'underwear for hot weather', 'briefs that stay put', 'themed boxer briefs', 'superhero underwear'];
+    fallbacks = [
+      'boxers that stay put during workouts',
+      'underwear for hot weather without riding up',
+      'briefs that are comfortable for all-day wear',
+      'boxer briefs that don\'t show through',
+      'underwear for sensitive skin without irritation'
+    ];
   } else if (brandLower.includes('cloth') || brandLower.includes('apparel') || brandLower.includes('fashion')) {
-    fallbacks = ['outfit for interview', 'dress for beach', 'jacket for travel', 'casual friday look', 'date night outfit'];
+    fallbacks = [
+      'outfit I can wear to work and dinner',
+      'dress that\'s both comfortable and professional',
+      'jacket that works in multiple seasons',
+      'casual clothes for someone who hates tight fits',
+      'clothes that are stylish but not high maintenance'
+    ];
   } else if (brandLower.includes('swim') || brandLower.includes('beach')) {
-    fallbacks = ['swimsuit for surfing', 'beach cover up', 'swimwear for laps', 'bikini for vacation', 'board shorts for water park'];
+    fallbacks = [
+      'swimsuit that doesn\'t ride up or slip',
+      'beachwear for someone with sensitive skin',
+      'cover-up that\'s stylish and actually covers',
+      'swim shorts that dry quickly for water sports',
+      'swimwear that works for lap swimming'
+    ];
   } else {
-    fallbacks = ['gift for friend', 'something for travel', 'item for everyday use', 'product for summer', 'option for gifting'];
+    fallbacks = [
+      'product that works for everyday use and travel',
+      'something I can wear that looks good and feels good',
+      'items that work for both casual and professional',
+      'gift that\'s useful for someone active',
+      'product that won\'t irritate sensitive skin'
+    ];
   }
   
-  return fallbacks[attempt - 1] || fallbacks[0];
+  const selected = fallbacks[Math.min(attempt - 1, fallbacks.length - 1)];
+  console.log(`  [AI] Using fallback query ${attempt}: "${selected}"`);
+  return selected;
 }
 
 // ============================================================================

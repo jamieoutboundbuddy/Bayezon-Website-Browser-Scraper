@@ -216,7 +216,7 @@ app.post('/api/analyze', async (req: Request, res: Response) => {
       // Continue anyway - don't fail the request just because DB save failed
     }
     
-    const result: SmartAnalysisResult & { adversarial?: any } = {
+    const result: SmartAnalysisResult & { adversarial?: any; summary?: any } = {
       jobId,
       domain,
       siteProfile,
@@ -230,8 +230,9 @@ app.post('/api/analyze', async (req: Request, res: Response) => {
         : null,
       screenshotUrls,
       durationMs: Date.now() - startTime,
-      // Include full adversarial data for frontend
-      adversarial: aiResult.adversarial
+      // Include full adversarial data and summary for frontend
+      adversarial: aiResult.adversarial,
+      summary: aiResult.summary
     };
     
     console.log(`\n[ANALYZE] ========================================`);
