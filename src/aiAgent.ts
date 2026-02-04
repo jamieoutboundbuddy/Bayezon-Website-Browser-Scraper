@@ -292,7 +292,7 @@ Return ONLY this JSON (no other text):
       const researchResponse = await openai.chat.completions.create({
         model: 'gpt-5-mini',
         messages: [{ role: 'user', content: queryPrompt }],
-        max_completion_tokens: 200
+        max_completion_tokens: 500
       });
       
       console.log(`  [AI] OpenAI response received`);
