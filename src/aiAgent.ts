@@ -101,47 +101,36 @@ async function createStagehandSession(): Promise<Stagehand> {
  * Aggressively tries multiple strategies to ensure all popups are closed
  */
 async function dismissPopups(stagehand: Stagehand, page: any): Promise<void> {
-  console.log('  [AI] Aggressively dismissing popups...');
+  console.log('  [AI] Dismissing popups...');
   
-  // Wait longer for popups to appear (some load after page load)
-  await new Promise(resolve => setTimeout(resolve, 2000));
+  // Wait for popups to appear (some load after page load)
+  await new Promise(resolve => setTimeout(resolve, 1500));
   
-  // Try up to 5 times (increased from 3)
-  for (let i = 0; i < 5; i++) {
+  // Try up to 3 times
+  for (let i = 0; i < 3; i++) {
     try {
-      // Strategy 1: Try Escape key first (fastest)
-      await page.keyboard.press('Escape');
-      await new Promise(resolve => setTimeout(resolve, 800));
-      
-      // Strategy 2: Ask AI to close visible popups
-      const result = await stagehand.act(
-        "Look at the page carefully. If you see ANY popup, modal, cookie banner, newsletter signup, overlay, or dialog box that is blocking or covering the main content, close it immediately. Look for: X buttons, Close buttons, Accept/Agree buttons, 'Got it' buttons, 'No thanks' buttons, or click outside the popup. If NO popup is visible, do nothing."
-      );
-      
-      // Wait for popup to close
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      // Strategy 3: Verify popup is gone by checking if main content is visible
-      const verifyResult = await stagehand.act(
-        "Check if the main page content (navigation menu, product grid, or main hero section) is clearly visible and not blocked by any popup or overlay. If content is blocked, try closing it again. If content is visible, confirm 'content visible'."
-      );
-      
-      // Check if verification was successful (no popup blocking content)
-      if (verifyResult.success) {
-        console.log(`  [AI] ✓ Popups dismissed (attempt ${i + 1})`);
-        break;
+      // Strategy 1: Try Escape key (if keyboard available)
+      try {
+        if (page.keyboard) {
+          await page.keyboard.press('Escape');
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      } catch {
+        // Keyboard not available, skip
       }
       
-      console.log(`  [AI] Popup check ${i + 1}: still present, retrying...`);
+      // Strategy 2: Ask AI to close visible popups
+      await stagehand.act(
+        "If there is any popup, modal, cookie banner, newsletter signup, or overlay visible, close it by clicking the X, Close, Accept, or 'No thanks' button. If no popup is visible, do nothing."
+      );
+      
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      console.log(`  [AI] ✓ Popup check ${i + 1} complete`);
       
     } catch (e: any) {
-      console.log(`  [AI] Popup check ${i + 1}: ${e.message || 'no action needed'}`);
-      // Continue trying
+      console.log(`  [AI] Popup check ${i + 1}: ${e.message || 'done'}`);
     }
   }
-  
-  // Final wait to ensure everything is settled
-  await new Promise(resolve => setTimeout(resolve, 1000));
 }
 
 
@@ -220,61 +209,90 @@ export async function aiFullAnalysis(
     console.log(`  [AI] ✓ Homepage screenshot saved: ${homepageScreenshotPath}`);
     
     // Step 5: Generate search query using domain knowledge (NO screenshot needed)
-    // gpt-5-mini knows what allbirds.com, nike.com etc. sell from training data
     console.log(`[AI-FULL] Step 5: Generating search query (gpt-5-mini, text-only)...`);
     
-    const queryPrompt = `You are researching ${domain} to generate a search query that tests their search functionality.
+    // Extract domain name for brand lookup
+    const brandName = domain.replace(/^www\./, '').replace(/\.(com|co\.uk|net|org).*$/, '');
+    
+    const queryPrompt = `Generate a search query to test if ${domain} can handle natural language search.
 
-First, recall what you know about ${domain}:
-- What do they sell?
-- What makes them unique?
-- Who is their target customer?
+BRAND CONTEXT (use your knowledge):
+${brandName} - recall what they sell, their unique value, target customer.
 
-Then generate ONE natural language search query a real customer would type.
+YOUR TASK:
+Create ONE search query that combines 2-3 constraints (use case + environment/season + preference).
+The query should test if their search understands INTENT, not just keywords.
+
+EXAMPLES BY BRAND:
+- allbirds.com → "comfy trainers for city walking in summer"
+- nike.com → "all day walking shoes for hot weather"  
+- patagonia.com → "everyday jacket for cold weather but not hiking"
+- lululemon.com → "comfortable trousers for travel days"
+- everlane.com → "simple everyday shoes that go with everything"
+- ikea.com → "small sofa comfortable for everyday use"
+- uniqlo.com → "warm clothes for winter layering"
+- away.com → "carry-on suitcase for short trips"
 
 RULES:
-- Combine 2-3 constraints (use case + environment + preference)
-- Write as a statement/phrase, NOT a question
-- DO NOT use standalone category names (MEN, WOMEN, shoes, clothing)
-- Product type + real constraints is good
+- Sound like natural human speech (NOT a question, NOT a command)
+- Must include 2-3 real constraints
+- NEVER use standalone categories (men, women, shoes, pants)
+- Product type + context/use-case + preference = good
 
-GOOD EXAMPLES:
-- "lightweight sneakers for summer travel"
-- "comfortable walking shoes for hot weather"
-- "warm jacket for commuting not hiking"
-- "breathable shoes for standing all day"
-
-BAD EXAMPLES:
-- "men's shoes" (just category browsing)
-- "What do you recommend?" (question format - FORBIDDEN)
-- "I need something for MEN" (question format - FORBIDDEN)
-- "running shoes" (only one constraint)
-
-Return JSON only:
-{
-  "brand_summary": "What they sell in 1 sentence",
-  "search_query": "your query here"
-}`;
+Return ONLY this JSON (no other text):
+{"brand_summary": "one sentence about what they sell", "search_query": "your multi-constraint query"}`;
 
     const researchStartTime = Date.now();
-    const researchResponse = await openai.chat.completions.create({
-      model: 'gpt-5-mini',
-      messages: [{ role: 'user', content: queryPrompt }],
-      max_completion_tokens: 200
-    });
-    
-    const researchContent = researchResponse.choices[0].message.content || '{}';
+    let researchContent = '';
     let researchData: { brand_summary: string; search_query: string };
     
     try {
+      const researchResponse = await openai.chat.completions.create({
+        model: 'gpt-5-mini',
+        messages: [{ role: 'user', content: queryPrompt }],
+        max_completion_tokens: 200
+      });
+      
+      researchContent = researchResponse.choices[0].message.content || '';
+      console.log(`  [AI] Raw LLM response: ${researchContent.substring(0, 200)}`);
+      
       const jsonMatch = researchContent.match(/\{[\s\S]*\}/);
-      researchData = JSON.parse(jsonMatch ? jsonMatch[0] : '{}');
-    } catch (e) {
-      console.error('[AI-FULL] Failed to parse research response, using defaults');
-      researchData = {
-        brand_summary: 'E-commerce retailer',
-        search_query: 'comfortable everyday products'
+      if (!jsonMatch) {
+        throw new Error('No JSON found in response');
+      }
+      researchData = JSON.parse(jsonMatch[0]);
+      
+      // Validate the query isn't garbage
+      if (!researchData.search_query || researchData.search_query.length < 10) {
+        throw new Error('Query too short or missing');
+      }
+      
+    } catch (e: any) {
+      console.error(`[AI-FULL] Query generation failed: ${e.message}`);
+      console.error(`[AI-FULL] Raw response was: ${researchContent}`);
+      
+      // Brand-specific fallbacks instead of generic garbage
+      const fallbacks: Record<string, { brand: string; query: string }> = {
+        'allbirds': { brand: 'Sustainable comfort footwear', query: 'comfy trainers for city walking in summer' },
+        'nike': { brand: 'Athletic footwear and apparel', query: 'all day walking shoes for hot weather' },
+        'patagonia': { brand: 'Outdoor clothing and gear', query: 'everyday jacket for cold weather but not hiking' },
+        'lululemon': { brand: 'Athletic apparel', query: 'comfortable trousers for travel days' },
+        'everlane': { brand: 'Modern essentials clothing', query: 'simple everyday shoes that go with everything' },
+        'ikea': { brand: 'Home furnishings', query: 'small sofa comfortable for everyday use' },
+        'uniqlo': { brand: 'Casual everyday clothing', query: 'warm clothes for winter layering' },
+        'away': { brand: 'Travel luggage', query: 'carry-on suitcase for short trips' },
       };
+      
+      const fallback = fallbacks[brandName.toLowerCase()] || { 
+        brand: 'E-commerce retailer', 
+        query: 'lightweight comfortable option for everyday use' 
+      };
+      
+      researchData = {
+        brand_summary: fallback.brand,
+        search_query: fallback.query
+      };
+      console.log(`  [AI] Using fallback query: "${fallback.query}"`);
     }
     
     // Log to database
