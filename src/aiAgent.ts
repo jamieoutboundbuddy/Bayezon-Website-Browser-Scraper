@@ -364,12 +364,15 @@ Return JSON:
         {
           role: 'user',
           content: [
-            { type: 'input_text', text: prompt },
+            { type: 'text', text: prompt },
             { 
-              type: 'input_image',
-              image_url: `data:image/png;base64,${screenshotBase64}`,
+              type: 'image_url',
+              image_url: {
+                url: `data:image/png;base64,${screenshotBase64}`,
+                detail: 'low'
+              }
             }
-          ] as any
+          ]
         }
       ],
       max_tokens: 300,
@@ -524,7 +527,17 @@ export async function aiFullAnalysis(
           content: [
             { 
               type: 'text', 
-              text: `Look at this e-commerce homepage screenshot. What does this website sell? Answer in one short sentence (e.g., "Athletic footwear and apparel", "Premium underwear and loungewear", "Outdoor gear and clothing").` 
+              text: `Look at this e-commerce homepage screenshot. What is the PRIMARY PRODUCT CATEGORY this store sells?
+
+IMPORTANT: Focus on the actual product type being sold, NOT the designs/graphics on products.
+- If you see underwear with cartoon prints, they sell "underwear" not "cartoons"
+- If you see t-shirts with food logos, they sell "apparel" not "food"
+
+Answer in 2-4 words only. Examples:
+- "Underwear and loungewear"
+- "Athletic footwear"
+- "Outdoor clothing"
+- "Home furniture"` 
             },
             {
               type: 'image_url',
@@ -535,7 +548,7 @@ export async function aiFullAnalysis(
             }
           ]
         }],
-        max_tokens: 50,
+        max_tokens: 30,
         temperature: 0
       });
       brandSummary = brandResponse.choices[0]?.message?.content?.trim() || brandSummary;
