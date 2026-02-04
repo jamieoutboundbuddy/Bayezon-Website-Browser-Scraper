@@ -98,39 +98,77 @@ async function createStagehandSession(): Promise<Stagehand> {
 
 /**
  * Dismiss any popups/modals on the page
- * Aggressively tries multiple strategies to ensure all popups are closed
+ * Uses multiple strategies to ensure all popups are closed
  */
 async function dismissPopups(stagehand: Stagehand, page: any): Promise<void> {
   console.log('  [AI] Dismissing popups...');
   
   // Wait for popups to appear (some load after page load)
-  await new Promise(resolve => setTimeout(resolve, 1500));
+  await new Promise(resolve => setTimeout(resolve, 2000));
   
-  // Try up to 3 times
+  // Strategy 1: Try Escape key multiple times
   for (let i = 0; i < 3; i++) {
     try {
-      // Strategy 1: Try Escape key (if keyboard available)
-      try {
-        if (page.keyboard) {
-          await page.keyboard.press('Escape');
-          await new Promise(resolve => setTimeout(resolve, 500));
-        }
-      } catch {
-        // Keyboard not available, skip
-      }
-      
-      // Strategy 2: Ask AI to close visible popups
-      await stagehand.act(
-        "If there is any popup, modal, cookie banner, newsletter signup, or overlay visible, close it by clicking the X, Close, Accept, or 'No thanks' button. If no popup is visible, do nothing."
-      );
-      
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      console.log(`  [AI] ✓ Popup check ${i + 1} complete`);
-      
-    } catch (e: any) {
-      console.log(`  [AI] Popup check ${i + 1}: ${e.message || 'done'}`);
+      await page.keyboard.press('Escape');
+      await new Promise(resolve => setTimeout(resolve, 300));
+    } catch {
+      // Keyboard might not be ready, ignore
     }
   }
+  
+  // Strategy 2: Click common close buttons directly via JavaScript
+  try {
+    await page.evaluate(() => {
+      // Find and click close buttons
+      const closeSelectors = [
+        '[aria-label*="close" i]',
+        '[aria-label*="dismiss" i]',
+        'button[class*="close"]',
+        'button[class*="Close"]',
+        '[class*="modal-close"]',
+        '[class*="popup-close"]',
+        '[class*="dialog-close"]',
+        'button:has-text("Accept")',
+        'button:has-text("Got it")',
+        'button:has-text("No thanks")',
+        'button:has-text("Close")',
+        '.cookie-banner button',
+        '[class*="cookie"] button',
+        '[class*="consent"] button'
+      ];
+      
+      for (const selector of closeSelectors) {
+        try {
+          const elements = document.querySelectorAll(selector);
+          elements.forEach((el: any) => {
+            if (el && typeof el.click === 'function') {
+              el.click();
+            }
+          });
+        } catch {
+          // Ignore selector errors
+        }
+      }
+    });
+    console.log('  [AI] ✓ Ran JavaScript popup dismissal');
+  } catch (e: any) {
+    console.log(`  [AI] JS popup dismissal: ${e.message || 'failed'}`);
+  }
+  
+  await new Promise(resolve => setTimeout(resolve, 500));
+  
+  // Strategy 3: Use Stagehand AI as a backup (with error handling)
+  try {
+    await stagehand.act(
+      "If you see any popup, modal, or overlay blocking the main content, click the close button or X to dismiss it. Otherwise do nothing."
+    );
+    console.log('  [AI] ✓ Stagehand popup check complete');
+  } catch (e: any) {
+    // This is expected to fail sometimes when there's nothing to close
+    console.log(`  [AI] Stagehand popup check: ${e.message?.substring(0, 50) || 'no action needed'}`);
+  }
+  
+  await new Promise(resolve => setTimeout(resolve, 500));
 }
 
 
@@ -184,7 +222,7 @@ export async function aiFullAnalysis(
     
     // Step 1: Set viewport for quality screenshots
     console.log(`[AI-FULL] Step 1: Setting up browser...`);
-    await page.setViewportSize(1920, 1080);
+    await page.setViewportSize({ width: 1920, height: 1080 });
     
     // Step 2: Navigate to homepage
     console.log(`[AI-FULL] Step 2: Navigating to ${url}...`);
@@ -248,30 +286,43 @@ Return ONLY this JSON (no other text):
     let tokensUsed: number | null = null;
     
     try {
+      console.log(`  [AI] Calling gpt-5-mini for query generation...`);
+      console.log(`  [AI] API Key present: ${!!process.env.OPENAI_API_KEY}`);
+      
       const researchResponse = await openai.chat.completions.create({
         model: 'gpt-5-mini',
         messages: [{ role: 'user', content: queryPrompt }],
         max_completion_tokens: 200
       });
       
+      console.log(`  [AI] OpenAI response received`);
+      console.log(`  [AI] Choices: ${researchResponse.choices?.length || 0}`);
+      console.log(`  [AI] Finish reason: ${researchResponse.choices?.[0]?.finish_reason || 'none'}`);
+      
       tokensUsed = researchResponse.usage?.total_tokens ?? null;
-      researchContent = researchResponse.choices[0].message.content || '';
-      console.log(`  [AI] Raw LLM response: ${researchContent.substring(0, 200)}`);
+      researchContent = researchResponse.choices[0]?.message?.content || '';
+      
+      console.log(`  [AI] Raw LLM response (${researchContent.length} chars): ${researchContent.substring(0, 300)}`);
+      
+      if (!researchContent || researchContent.trim().length === 0) {
+        throw new Error('OpenAI returned empty response');
+      }
       
       const jsonMatch = researchContent.match(/\{[\s\S]*\}/);
       if (!jsonMatch) {
-        throw new Error('No JSON found in response');
+        throw new Error(`No JSON found in response: "${researchContent.substring(0, 100)}"`);
       }
       researchData = JSON.parse(jsonMatch[0]);
       
       // Validate the query isn't garbage
       if (!researchData.search_query || researchData.search_query.length < 10) {
-        throw new Error('Query too short or missing');
+        throw new Error(`Query too short or missing: "${researchData.search_query || 'undefined'}"`);
       }
       
     } catch (e: any) {
       console.error(`[AI-FULL] Query generation failed: ${e.message}`);
-      console.error(`[AI-FULL] Raw response was: ${researchContent}`);
+      console.error(`[AI-FULL] Error type: ${e.constructor?.name || 'unknown'}`);
+      console.error(`[AI-FULL] Raw response was: "${researchContent || '(empty)'}"`);
       
       // Brand-specific fallbacks instead of generic garbage
       const fallbacks: Record<string, { brand: string; query: string }> = {

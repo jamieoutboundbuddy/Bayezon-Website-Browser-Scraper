@@ -21,14 +21,14 @@ export function ensureArtifactDir(jobId: string, domain: string): string {
  */
 export function getArtifactPath(jobId: string, domain: string, stage: string): string {
   const dir = ensureArtifactDir(jobId, domain);
-  return path.join(dir, `${stage}.jpg`);
+  return path.join(dir, `${stage}.png`);
 }
 
 /**
  * Get served URL for artifact
  */
 export function getArtifactUrl(jobId: string, domain: string, stage: string): string {
-  return `/artifacts/${jobId}/${domain}/screens/${stage}.jpg`;
+  return `/artifacts/${jobId}/${domain}/screens/${stage}.png`;
 }
 
 /**
