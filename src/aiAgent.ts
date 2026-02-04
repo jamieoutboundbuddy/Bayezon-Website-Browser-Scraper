@@ -411,6 +411,7 @@ export async function aiFullAnalysis(
     narrative: string;
     queriesThatWork: string[];
     journeySteps: string[];
+    queryInsight: string; // LLM-generated explanation of what the results mean
   };
 }> {
   const startTime = Date.now();
@@ -684,7 +685,7 @@ Answer in 2-4 words only. Examples:
     }
     
     // ========================================================================
-    // GENERATE NARRATIVE SUMMARY
+    // GENERATE NARRATIVE SUMMARY WITH LLM INSIGHT
     // ========================================================================
     
     // Build the journey narrative
@@ -705,6 +706,41 @@ Answer in 2-4 words only. Examples:
       narrativeSummary = `We tested ${domain}'s search with ${queriesTested.length} queries of increasing difficulty.\n\n` +
         journeySteps.join('\n') + '\n\n' +
         `CONCLUSION: Search handled all test queries well. This site has robust search capabilities.`;
+    }
+    
+    // Generate LLM insight - a richer explanation of what this means
+    let queryInsight = '';
+    try {
+      const insightPrompt = proofQuery 
+        ? `You are a search optimization expert analyzing an e-commerce site (${domain}, selling ${brandSummary}).
+
+We tested their search with ${queriesTested.length} queries. It handled ${queriesTested.filter(q => q.passed).length} queries but FAILED on: "${proofQuery}"
+Failure reason: ${failureReasoning}
+
+Write a 2-3 sentence insight explaining:
+1. Why this failure matters (lost sales opportunity)
+2. The type of customer behavior this represents (people search like this!)
+3. The business impact (concrete, e.g., "shoppers leave empty-handed")
+
+Be direct, conversational, and compelling. No jargon. This is for a sales pitch showing why they need better search.`
+        : `You are a search optimization expert. ${domain} (selling ${brandSummary}) passed all ${queriesTested.length} test queries.
+
+Write a 1-2 sentence summary acknowledging their search handles natural language well, but note there may still be edge cases worth exploring.`;
+
+      const insightResponse = await openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: [{ role: 'user', content: insightPrompt }],
+        max_tokens: 200,
+        temperature: 0.7
+      });
+      
+      queryInsight = insightResponse.choices[0]?.message?.content?.trim() || '';
+    } catch (e: any) {
+      console.log(`  [AI] Insight generation failed: ${e.message}`);
+      // Fallback insight
+      queryInsight = proofQuery 
+        ? `When a customer searches "${proofQuery}" and gets zero results, they don't try again—they leave. This represents real revenue walking out the door.`
+        : 'This site handles natural language search well across our test queries.';
     }
     
     // Generate "queries that would work" (simple keyword-based)
@@ -774,7 +810,8 @@ Answer in 2-4 words only. Examples:
       summary: {
         narrative: narrativeSummary,
         queriesThatWork,
-        journeySteps
+        journeySteps,
+        queryInsight
       }
     };
     

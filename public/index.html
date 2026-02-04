@@ -33,12 +33,12 @@
       border: 1px solid var(--border-light);
     }
     
-    /* Verdict styles */
+    /* Verdict styles - OUTREACH is an OPPORTUNITY (amber/gold, not red) */
     .verdict-outreach { 
-      background: #FEF2F2;
-      border: 2px solid #EF4444;
+      background: linear-gradient(135deg, #FFFBEB 0%, #FEF3C7 100%);
+      border: 2px solid #F59E0B;
     }
-    .verdict-outreach .verdict-icon { color: #EF4444; }
+    .verdict-outreach .verdict-icon { color: #F59E0B; }
     
     .verdict-skip { 
       background: #F0FDF4;
@@ -119,6 +119,11 @@
       background: #FEF3C7;
       color: #B45309;
     }
+    .badge-opportunity {
+      background: linear-gradient(135deg, #FEF3C7 0%, #FDE68A 100%);
+      color: #92400E;
+      border: 1px solid #F59E0B;
+    }
     
     /* Animations */
     .pulse { animation: pulse 2s infinite; }
@@ -140,8 +145,8 @@
       border: 1px solid #BBF7D0;
     }
     .query-failed {
-      background: #FEF2F2;
-      border: 1px solid #FECACA;
+      background: linear-gradient(135deg, #FFFBEB 0%, #FEF3C7 100%);
+      border: 1px solid #FCD34D;
     }
   </style>
 </head>

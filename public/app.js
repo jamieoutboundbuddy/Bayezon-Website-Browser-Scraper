@@ -106,11 +106,11 @@ function renderResults(data) {
   // Set verdict styling
   if (verdict === 'OUTREACH') {
     verdictCard.className = 'card p-6 verdict-outreach';
-    verdictBadge.className = 'text-xs font-bold uppercase tracking-wider px-2 py-1 rounded badge-error';
-    verdictBadge.textContent = '🎯 OUTREACH';
-    verdictTitle.textContent = 'Search Failure Found';
-    verdictIconContainer.className = 'w-12 h-12 rounded-full flex items-center justify-center bg-red-100';
-    verdictIcon.className = 'fas fa-times text-2xl text-red-500';
+    verdictBadge.className = 'text-xs font-bold uppercase tracking-wider px-2 py-1 rounded badge-opportunity';
+    verdictBadge.textContent = '🎯 OPPORTUNITY';
+    verdictTitle.textContent = 'Search Opportunity Found';
+    verdictIconContainer.className = 'w-12 h-12 rounded-full flex items-center justify-center bg-amber-100';
+    verdictIcon.className = 'fas fa-lightbulb text-2xl text-amber-500';
   } else if (verdict === 'SKIP') {
     verdictCard.className = 'card p-6 verdict-skip';
     verdictBadge.className = 'text-xs font-bold uppercase tracking-wider px-2 py-1 rounded badge-success';
@@ -136,8 +136,8 @@ function renderResults(data) {
   // Narrative summary
   renderNarrative(summary?.narrative || adversarial?.narrative);
 
-  // Queries tested
-  renderQueriesTested(adversarial?.queriesTested || []);
+  // Queries tested (with insight explanation)
+  renderQueriesTested(adversarial?.queriesTested || [], summary?.queryInsight);
 
   // Queries that would work
   renderWorkingQueries(summary?.queriesThatWork || []);
@@ -213,7 +213,7 @@ function renderNarrative(narrative) {
 /**
  * Render queries tested
  */
-function renderQueriesTested(queries) {
+function renderQueriesTested(queries, insight) {
   const container = document.getElementById('queries-tested');
   if (!container) return;
 
@@ -222,16 +222,31 @@ function renderQueriesTested(queries) {
     return;
   }
 
-  container.innerHTML = queries.map((q, i) => `
+  // Show insight box first if available
+  const insightHtml = insight ? `
+    <div class="mb-6 p-4 bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-200 rounded-lg">
+      <div class="flex items-start gap-3">
+        <div class="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+          <i class="fas fa-brain text-amber-600"></i>
+        </div>
+        <div>
+          <h4 class="font-semibold text-amber-900 mb-1">What This Means</h4>
+          <p class="text-sm text-amber-800 leading-relaxed">${insight}</p>
+        </div>
+      </div>
+    </div>
+  ` : '';
+
+  const queriesHtml = queries.map((q, i) => `
     <div class="p-4 rounded-lg ${q.passed ? 'query-passed' : 'query-failed'}">
       <div class="flex items-start justify-between gap-4">
         <div class="flex-1">
           <div class="flex items-center gap-2 mb-1">
-            <span class="text-xs font-semibold ${q.passed ? 'text-green-700' : 'text-red-700'}">
+            <span class="text-xs font-semibold ${q.passed ? 'text-green-700' : 'text-amber-700'}">
               Query ${i + 1}
             </span>
-            <span class="text-xs px-2 py-0.5 rounded-full ${q.passed ? 'bg-green-200 text-green-800' : 'bg-red-200 text-red-800'}">
-              ${q.passed ? 'PASSED' : 'FAILED'}
+            <span class="text-xs px-2 py-0.5 rounded-full ${q.passed ? 'bg-green-200 text-green-800' : 'bg-amber-200 text-amber-800'}">
+              ${q.passed ? 'HANDLED' : 'OPPORTUNITY'}
             </span>
           </div>
           <p class="font-medium text-gray-900">"${q.query}"</p>
@@ -239,15 +254,17 @@ function renderQueriesTested(queries) {
             `<p class="text-sm text-gray-500 mt-1">${q.resultCount} results found</p>` : ''
           }
           ${q.reasoning ? 
-            `<p class="text-sm text-gray-500 mt-1">${q.reasoning}</p>` : ''
+            `<p class="text-sm text-gray-600 mt-2 italic">${q.reasoning}</p>` : ''
           }
         </div>
-        <div class="text-2xl ${q.passed ? 'text-green-500' : 'text-red-500'}">
-          <i class="fas ${q.passed ? 'fa-check-circle' : 'fa-times-circle'}"></i>
+        <div class="text-2xl ${q.passed ? 'text-green-500' : 'text-amber-500'}">
+          <i class="fas ${q.passed ? 'fa-check-circle' : 'fa-lightbulb'}"></i>
         </div>
       </div>
     </div>
   `).join('');
+
+  container.innerHTML = insightHtml + queriesHtml;
 }
 
 /**
