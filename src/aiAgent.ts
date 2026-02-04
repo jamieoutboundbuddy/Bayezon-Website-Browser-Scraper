@@ -668,7 +668,10 @@ Answer in 2-4 words only. Examples:
         if (!searchSucceeded) {
           console.log(`  [AI] ⚠ Trying direct URL navigation as fallback...`);
           const encodedQuery = encodeURIComponent(query);
-          const searchUrl = `${url}search?q=${encodedQuery}`;
+          // FIX: Ensure proper slash between domain and "search"
+          const baseUrl = url.endsWith('/') ? url : url + '/';
+          const searchUrl = `${baseUrl}search?q=${encodedQuery}`;
+          console.log(`  [AI] Fallback URL: ${searchUrl}`);
           try {
             await currentPage.goto(searchUrl, { waitUntil: 'domcontentloaded' });
             await new Promise(r => setTimeout(r, 3000));
@@ -744,6 +747,28 @@ Answer in 2-4 words only. Examples:
       }
       await new Promise(r => setTimeout(r, 1000)); // Extra buffer
       
+      // Check for error page BEFORE screenshot
+      const pageContent = await activePage.evaluate(() => document.body?.innerText || '');
+      const isErrorPage = pageContent.includes("This site can't be reached") ||
+                          pageContent.includes("ERR_") ||
+                          pageContent.includes("404") ||
+                          pageContent.includes("Page not found") ||
+                          pageContent.includes("cannot be displayed") ||
+                          pageContent.includes("Connection failed");
+      
+      if (isErrorPage) {
+        console.log(`  [AI] ⚠ ERROR PAGE DETECTED - Navigation failed completely`);
+        console.log(`  [AI] Attempting to return to homepage and retry...`);
+        
+        // Try to recover - go back to homepage
+        try {
+          await activePage.goto(url, { waitUntil: 'domcontentloaded' });
+          await new Promise(r => setTimeout(r, 2000));
+        } catch {
+          // Ignore recovery errors
+        }
+      }
+      
       const resultsScreenshotPath = getArtifactPath(jobId, domain, `results_${attempt}`, 'png');
       await activePage.screenshot({ 
         path: resultsScreenshotPath, 
@@ -752,9 +777,19 @@ Answer in 2-4 words only. Examples:
       });
       console.log(`  [AI] ✓ Results screenshot: ${resultsScreenshotPath}`);
       
-      // Evaluate results - but if still on homepage, it's definitely a failure
+      // Evaluate results - handle different failure cases
       let evaluation;
-      if (stillOnHomepage) {
+      if (isErrorPage) {
+        console.log(`  [AI] Marking as SYSTEM ERROR - page couldn't load (not a search failure)`);
+        evaluation = {
+          isSignificantFailure: false, // Don't count as search failure - it's a system error
+          resultCount: null,
+          productsFound: [],
+          reasoning: 'SYSTEM ERROR: Page failed to load (ERR_TUNNEL_CONNECTION_FAILED or similar). This is not a search quality issue.'
+        };
+        // Skip this query and continue to next - don't count it
+        continue;
+      } else if (stillOnHomepage) {
         console.log(`  [AI] Marking as failure - screenshot is homepage, not search results`);
         evaluation = {
           isSignificantFailure: true,
