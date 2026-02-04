@@ -22,6 +22,8 @@ export interface QueryTestResult {
   attempt: number;
   passed: boolean;
   resultCount: number | null;
+  relevantResultCount: number;
+  firstRelevantPosition: number | null;
   productsFound: string[];
   reasoning: string;
   screenshotPath?: string;
@@ -179,60 +181,46 @@ async function generateNextQuery(
 ): Promise<string> {
   const { domain, brandSummary, attempt, previousQueries } = context;
   
-  // Universal Commerce Search Probe Generator - improved prompt
-  const prompt = `Role
-You are a normal customer visiting an ecommerce website for the first time.
-You do not know the brand's internal categories, product names, or filters.
-You think in terms of problems, outcomes, and situations, not SKUs.
+  // Real-World Commerce Search Query Generator (Progression-Based)
+  // Strategy: Start simple, progressively add qualifiers/friction
+  const getProgressionPrompt = (attempt: number, brandSummary: string) => {
+    let searchStrategy = '';
+    
+    if (attempt === 1) {
+      searchStrategy = `ATTEMPT 1 (Simple): Generate a basic, single-concept search term that a real customer would type. This should be a straightforward product search - just the main thing they're looking for, nothing fancy.
+Examples: "running shoes", "moisturiser for sensitive skin", "coffee table", "blue dress"`;
+    } else if (attempt === 2) {
+      searchStrategy = `ATTEMPT 2 (One Qualifier): Add one realistic qualifier that a customer might naturally include. This should feel like a normal follow-up search they'd try if the first one didn't quite work.
+Examples: "running shoes for flat feet", "moisturiser without fragrance", "coffee table wood", "blue wedding dress"`;
+    } else if (attempt === 3) {
+      searchStrategy = `ATTEMPT 3 (Problem-Focused): Frame it around a real problem or situation the customer is solving. What's the actual friction they're experiencing?
+Examples: "shoes that won't hurt my feet", "skincare for acne breakouts", "furniture for small spaces", "dress that won't wrinkle"`;
+    } else if (attempt === 4) {
+      searchStrategy = `ATTEMPT 4 (Specific Scenario): Include context about when/where/why they need this. Think about the actual use case.
+Examples: "comfortable shoes for work all day", "moisturiser for dry skin in winter", "lightweight coffee table for moving", "dress for a long flight"`;
+    } else {
+      searchStrategy = `ATTEMPT 5 (Challenging): Combine multiple realistic factors - what would a demanding customer search for after other attempts failed?
+Examples: "comfortable shoes that look professional but won't hurt my feet", "lightweight moisturiser for sensitive skin that doesn't feel greasy"`;
+    }
 
-Domain/Brand: ${brandSummary}
-Query Attempt: ${attempt}/5
+    return `You are a real customer shopping at: ${brandSummary}
 
-Task
-Generate ONE natural-language search query that a real human would type into the site's search bar to find a relevant product.
+Your task: Generate ONE realistic search query that a normal human would type into this site's search bar.
 
-The query must:
-- Sound natural and conversational
-- Use a generic product noun appropriate for the domain
-- Combine multiple human constraints, not just one
-- Require interpretation, reasoning, or clarification to answer well
-- Reveal a limitation of keyword-based search (results may exist, but correctness is unclear)
+${searchStrategy}
 
-${attempt === 1 ? `
-For Attempt 1, start with a straightforward multi-constraint query:
-- Problem/outcome + context or body compatibility
-- Example: "shoes that don't irritate for everyday wear"
-- Example: "underwear that stays put for gym"
-- Example: "jacket that works for both casual and professional"
-` : `
-For Attempt ${attempt}, make it progressively harder:
-- Add more abstract constraints (${attempt === 2 ? 'feelings + situation' : attempt === 3 ? 'multiple outcomes' : attempt === 4 ? 'edge cases' : 'very specific needs'})
-- Mix feelings/outcomes with situations
-- Example: "something that works for both casual and professional settings"
-- Example: "the best option for sensitive skin without irritation"
-- Example: "shoes I can wear all day without foot pain"
-`}
+Guidelines:
+- Sound natural and conversational - like you're typing in a search bar, not writing an ad
+- Stay within the realm of what this brand actually sells
+- Use everyday language, not marketing jargon
+- If you wouldn't actually type it yourself, don't suggest it
+- Keep it under 10 words ideally
+- Don't stack too many qualifiers together
 
-Allowed constraint types (use 2-3):
-1. Problem/outcome: doesn't irritate, lasts longer, more comfortable, fixes a specific issue, safer/gentler/stronger
-2. Context/situation: everyday use, work, travel, first-time use, replacement/upgrade, all-day wear
-3. Body/object compatibility: skin type, hair type, body type, room size, material, foot shape
-4. Constraints/exclusions: but not ___, without ___, doesn't ___
-5. Comparison/uncertainty: better than what I'm using, safest option, best option for ___
-6. Experience level: beginner, sensitive, low maintenance
+Output: Just the search query itself. One line. No explanation, no quotes, no alternatives.`;
+  };
 
-Hard rules:
-- Do not use brand names
-- Do not use internal product names or categories
-- Do not use exact SKUs or part numbers
-- Do not explain the query
-- Keep it 5-12 words max
-
-Output format: Plain text. One line only. No JSON, no explanation.
-
-Why this works: Write the query so that a reasonable person would ask "Okay, but how would a search engine know which one is right?"
-
-NOW: Generate a NEW challenging query for someone shopping at ${brandSummary}`;
+  const prompt = getProgressionPrompt(attempt, brandSummary);
 
   try {
     const response = await openai.chat.completions.create({
@@ -323,6 +311,8 @@ NOW: Generate a NEW challenging query for someone shopping at ${brandSummary}`;
 interface EvaluationResult {
   isSignificantFailure: boolean;
   resultCount: number | null;
+  relevantResultCount: number;
+  firstRelevantPosition: number | null;
   productsFound: string[];
   reasoning: string;
 }
@@ -337,38 +327,38 @@ async function evaluateSearchResults(
 
 QUERY: "${query}"
 
-BE STRICT about relevance. The search should understand INTENT, not just keywords.
+IMPORTANT: You are looking for INTENT matching, not just keyword matching.
+- A query asking for "comfortable shoes" is SATISFIED by shoe products described as comfortable
+- A query asking for "hiking boots" is FAILED by generic dress shoes
+- A query asking for "wide fit running shoes" is SATISFIED by any running shoe labeled as wide fit
+
+BE FAIR about relevance:
+- If products genuinely match the query intent, mark as relevant
+- If results are completely off-topic or missing entirely, mark as failure
+- If results exist but are buried deep (position 10+), still mark as RELEVANT but note the position
 
 EVALUATE:
 1. Are there 0 results shown? → SIGNIFICANT FAILURE
 2. Are results BLOG POSTS/GUIDES/ARTICLES instead of products? → SIGNIFICANT FAILURE
-3. Are results products but WRONG for the query intent? → SIGNIFICANT FAILURE
+3. Are ALL results products but COMPLETELY WRONG for the query? → SIGNIFICANT FAILURE
+4. Do ANY results genuinely match the query intent? → PASS (even if other results are mediocre)
 
 RELEVANCE EXAMPLES:
-- Query "festival outfit" → Generic midi dresses = FAIL (not festival style)
-- Query "festival outfit" → Crop tops, shorts, boho styles = PASS
+- Query "running shoes for wide feet" → Products labeled as "wide fit" = PASS (even if only 1 in the results)
+- Query "waterproof hiking boots" → Mix of shoes + 1-2 waterproof hiking boots = PASS (note position of first relevant)
+- Query "comfortable everyday shoes" → Mix of various shoes including some labeled comfortable = PASS
 - Query "hiking shoes" → Dress shoes = FAIL
-- Query "hiking shoes" → Trail runners, boots = PASS
-- Query "beach wedding dress" → Casual sundresses = FAIL
-- Query "beach wedding dress" → Flowy white/ivory dresses = PASS
-
-SIGNIFICANT FAILURE if:
-- Zero results
-- Results are content/articles (not products)
-- Results are products but DON'T MATCH THE INTENT of the query
-- Results are generic/basic products when query asked for something specific
-
-PASSED only if:
-- Results show actual purchasable products (with prices)
-- Products GENUINELY fit what someone searching that query would want
+- Query "beach wedding dress" → Casual sundresses = FAIL (generic when specific style expected)
 
 Return JSON:
 {
   "significant_failure": true/false,
   "result_count": number or null,
+  "relevant_result_count": number (how many of the results actually match intent),
+  "first_relevant_position": number or null (position of first matching product, 1-indexed),
   "result_type": "products" | "articles" | "mixed" | "none",
   "products_shown": ["product 1", "product 2", ...],
-  "reasoning": "Why products do/don't match the search intent"
+  "reasoning": "Why products do/don't match the search intent and note about positioning if relevant"
 }`;
 
   try {
@@ -389,7 +379,7 @@ Return JSON:
           ]
         }
       ],
-      max_tokens: 300,
+      max_tokens: 400,
       temperature: 0
     });
     
@@ -401,6 +391,8 @@ Return JSON:
       return {
         isSignificantFailure: data.significant_failure === true,
         resultCount: data.result_count,
+        relevantResultCount: data.relevant_result_count || 0,
+        firstRelevantPosition: data.first_relevant_position,
         productsFound: data.products_shown || [],
         reasoning: data.reasoning || 'No reasoning provided'
       };
@@ -426,7 +418,7 @@ Return JSON:
             ]
           }
         ],
-        max_tokens: 300,
+        max_tokens: 400,
         temperature: 0
       });
       
@@ -438,6 +430,8 @@ Return JSON:
         return {
           isSignificantFailure: data.significant_failure === true,
           resultCount: data.result_count,
+          relevantResultCount: data.relevant_result_count || 0,
+          firstRelevantPosition: data.first_relevant_position,
           productsFound: data.products_shown || [],
           reasoning: data.reasoning || 'No reasoning provided'
         };
@@ -451,6 +445,8 @@ Return JSON:
   return {
     isSignificantFailure: false,
     resultCount: null,
+    relevantResultCount: 0,
+    firstRelevantPosition: null,
     productsFound: [],
     reasoning: 'Could not evaluate results'
   };
@@ -854,6 +850,10 @@ Answer in 2-4 words only. Examples:
       }
       
       console.log(`  [AI] Result count: ${evaluation.resultCount ?? 'unknown'}`);
+      console.log(`  [AI] Relevant results: ${evaluation.relevantResultCount}`);
+      if (evaluation.firstRelevantPosition) {
+        console.log(`  [AI] First relevant at position: ${evaluation.firstRelevantPosition}`);
+      }
       console.log(`  [AI] Significant failure: ${evaluation.isSignificantFailure}`);
       console.log(`  [AI] Reasoning: ${evaluation.reasoning}`);
       
@@ -863,6 +863,8 @@ Answer in 2-4 words only. Examples:
         attempt,
         passed: !evaluation.isSignificantFailure,
         resultCount: evaluation.resultCount,
+        relevantResultCount: evaluation.relevantResultCount,
+        firstRelevantPosition: evaluation.firstRelevantPosition,
         productsFound: evaluation.productsFound,
         reasoning: evaluation.reasoning,
         screenshotPath: resultsScreenshotPath
@@ -934,7 +936,10 @@ Answer in 2-4 words only. Examples:
     const journeySteps = queriesTested.map((q, i) => {
       const status = q.passed ? '✅' : '❌';
       const resultText = q.resultCount !== null ? `${q.resultCount} results` : 'unknown results';
-      return `${i + 1}. "${q.query}" → ${status} ${resultText}${q.passed ? '' : ' - FAILED'}`;
+      const positionText = q.firstRelevantPosition 
+        ? ` (relevant at position ${q.firstRelevantPosition})` 
+        : '';
+      return `${i + 1}. "${q.query}" → ${status} ${resultText}${positionText}${q.passed ? '' : ' - FAILED'}`;
     });
     
     let narrativeSummary = '';
