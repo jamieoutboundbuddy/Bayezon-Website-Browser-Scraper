@@ -635,101 +635,198 @@ Answer in 2-4 words only. Examples:
         await dismissPopups(stagehand, page);
       }
       
-      // Execute search - STAGEHAND AI APPROACH (works on any website)
+      // Execute search - DIRECT SELECTORS FIRST (fast, reliable), then AI fallback
       let searchSucceeded = false;
       
       console.log(`  [AI] Executing search for: "${query}"`);
       
-      // PRIMARY: Stagehand AI to interact with search (universal approach)
-      try {
-        // Step 1: Dismiss any popups first
-        await dismissPopups(stagehand, page);
-        
-        // Step 2: Find and click search icon
-        console.log(`  [AI] Step 1: Opening search...`);
-        await stagehand.act("Find the search icon (usually a magnifying glass in the header/nav area) and click it to open the search functionality");
-        await new Promise(r => setTimeout(r, 3000)); // Longer wait for modal animation
-        
-        // Step 3: Find the ACTIVE/VISIBLE search input and type
-        // This is critical - target the input that's currently visible/focused
-        console.log(`  [AI] Step 2: Typing into search input...`);
-        await stagehand.act(`Find the search input field that is currently visible and active (it may be in a modal/overlay that just appeared). Click directly inside the text input box to focus it, then type exactly: ${query}`);
-        await new Promise(r => setTimeout(r, 2000));
-        
-        // Step 4: Submit - be very explicit
-        console.log(`  [AI] Step 3: Submitting search...`);
-        await stagehand.act("Submit the search by pressing Enter key on the keyboard or clicking the search/submit button next to the input");
-        await new Promise(r => setTimeout(r, 5000)); // Longer wait for results
-        
-        // Verify we got results
-        const currentUrl = page.url();
-        const pageContent = await page.evaluate(() => document.body.innerText || '');
-        
-        const urlHasSearch = currentUrl.includes('search') || currentUrl.includes('query') || currentUrl.includes('q=') || currentUrl.includes('result');
-        const hasResultIndicators = pageContent.toLowerCase().includes('result') || 
-                                    pageContent.toLowerCase().includes('product') ||
-                                    pageContent.includes('0 results') ||
-                                    pageContent.includes('No results');
-        
-        if (urlHasSearch && hasResultIndicators) {
-          console.log(`  [AI] ✓ Search executed successfully`);
-          searchSucceeded = true;
-        } else {
-          console.log(`  [AI] Search verification uncertain. URL: ${currentUrl.substring(0, 60)}`);
-        }
-      } catch (stagehandError: any) {
-        console.log(`  [AI] Stagehand search failed: ${stagehandError.message?.substring(0, 100)}`);
-      }
+      // Dismiss popups first
+      await dismissPopups(stagehand, page);
       
-      // FALLBACK: Direct URL + still interact with the page
-      if (!searchSucceeded) {
-        console.log(`  [AI] Trying fallback: direct URL + page interaction...`);
+      // ============================================================
+      // STRATEGY 1: Direct CSS selectors (works 95% of the time, fast)
+      // ============================================================
+      const searchSelectors = [
+        'input[type="search"]',
+        'input[name="q"]',
+        'input[name="query"]',
+        'input[name="search"]',
+        'input[placeholder*="Search" i]',
+        'input[aria-label*="Search" i]',
+        'header input[type="text"]',
+        'nav input[type="text"]',
+        '[data-testid*="search" i] input',
+        '.search-input',
+        '#search-input',
+        '#search',
+        '.search input',
+        '[class*="search"] input[type="text"]',
+      ];
+      
+      console.log(`  [AI] Strategy 1: Trying direct CSS selectors...`);
+      
+      for (const selector of searchSelectors) {
         try {
-          const searchUrls = [
-            `${url}/search?q=${encodeURIComponent(query)}`,
-            `${url}/search?query=${encodeURIComponent(query)}`,
-            `${url}/pages/search-results-page?q=${encodeURIComponent(query)}`,
-          ];
-          
-          for (const searchUrl of searchUrls) {
-            console.log(`  [AI] Trying: ${searchUrl.substring(0, 70)}...`);
-            await page.goto(searchUrl, { waitUntil: 'domcontentloaded' });
-            await new Promise(r => setTimeout(r, 3000));
-            
-            // Dismiss popups that appeared
-            await dismissPopups(stagehand, page);
-            
-            // Check if we need to still type in a search box
-            // Some sites open a modal on /search URL
-            const pageContent = await page.evaluate(() => document.body.innerText || '');
-            const hasSearchResults = pageContent.toLowerCase().includes('result') || 
-                                     pageContent.toLowerCase().includes('product') ||
-                                     pageContent.includes('found');
-            
-            if (!hasSearchResults) {
-              // The URL opened but didn't show results - try to type in the search
-              console.log(`  [AI] No results visible, trying to type in search...`);
-              try {
-                await stagehand.act(`Find any visible search input field and type: ${query}`);
-                await new Promise(r => setTimeout(r, 1000));
-                await stagehand.act("Press Enter or click the search button to submit");
-                await new Promise(r => setTimeout(r, 4000));
-              } catch (e) {
-                console.log(`  [AI] Could not interact with search on this page`);
-              }
+          // Use page.evaluate to find and interact with elements
+          const found = await page.evaluate((sel: string) => {
+            const el = document.querySelector(sel) as HTMLInputElement | null;
+            if (el && el.offsetParent !== null) { // Check if visible
+              return true;
             }
+            return false;
+          }, selector);
+          
+          if (found) {
+            console.log(`  [AI] ✓ Found search with selector: ${selector}`);
             
-            // Final check
-            const finalContent = await page.evaluate(() => document.body.innerText || '');
-            if (!finalContent.includes('Page not found') && !finalContent.includes('404')) {
-              console.log(`  [AI] ✓ Fallback completed`);
+            // Click, clear, type, and submit all via evaluate
+            await page.evaluate((data: { sel: string, q: string }) => {
+              const el = document.querySelector(data.sel) as HTMLInputElement;
+              if (el) {
+                el.click();
+                el.focus();
+                el.value = '';
+                el.value = data.q;
+                // Dispatch input event to trigger any listeners
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+                el.dispatchEvent(new Event('change', { bubbles: true }));
+              }
+            }, { sel: selector, q: query });
+            
+            await new Promise(r => setTimeout(r, 500));
+            
+            // Press Enter via evaluate
+            await page.evaluate((sel: string) => {
+              const el = document.querySelector(sel) as HTMLInputElement;
+              if (el) {
+                el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
+                el.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
+                // Also try form submit
+                const form = el.closest('form');
+                if (form) form.submit();
+              }
+            }, selector);
+            
+            await new Promise(r => setTimeout(r, 4000)); // Wait for results
+            
+            // Verify navigation
+            const currentUrl = page.url();
+            if (currentUrl.includes('search') || currentUrl.includes('q=') || currentUrl.includes('query')) {
+              console.log(`  [AI] ✓ Direct selector search succeeded! URL: ${currentUrl.substring(0, 60)}`);
               searchSucceeded = true;
               break;
             }
           }
-        } catch (fallbackError: any) {
-          console.log(`  [AI] Fallback failed: ${fallbackError.message?.substring(0, 50)}`);
+        } catch (e) {
+          // Continue to next selector
         }
+      }
+      
+      // ============================================================
+      // STRATEGY 2: Stagehand AI (only if direct selectors failed)
+      // ============================================================
+      if (!searchSucceeded) {
+        console.log(`  [AI] Strategy 2: Direct selectors failed, trying Stagehand AI...`);
+        try {
+          // First try to click search icon to open modal
+          await stagehand.act("Click the search icon (magnifying glass) in the header");
+          await new Promise(r => setTimeout(r, 2000));
+          
+          // Now find and fill the search input
+          await stagehand.act(`Type into the search input field: ${query}`);
+          await new Promise(r => setTimeout(r, 1000));
+          
+          // Submit
+          await stagehand.act("Press Enter or click the search button");
+          await new Promise(r => setTimeout(r, 4000));
+          
+          const currentUrl = page.url();
+          if (currentUrl.includes('search') || currentUrl.includes('q=')) {
+            console.log(`  [AI] ✓ Stagehand search succeeded`);
+            searchSucceeded = true;
+          }
+        } catch (stagehandError: any) {
+          console.log(`  [AI] Stagehand search failed: ${stagehandError.message?.substring(0, 80)}`);
+        }
+      }
+      
+      // ============================================================
+      // STRATEGY 3: Direct URL navigation (last resort)
+      // ============================================================
+      if (!searchSucceeded) {
+        console.log(`  [AI] Strategy 3: Trying direct URL navigation...`);
+        const searchUrls = [
+          `${url}/search?q=${encodeURIComponent(query)}`,
+          `${url}/search?query=${encodeURIComponent(query)}`,
+          `${url}/pages/search-results-page?q=${encodeURIComponent(query)}`,
+        ];
+        
+        for (const searchUrl of searchUrls) {
+          try {
+            console.log(`  [AI] Trying: ${searchUrl.substring(0, 70)}...`);
+            await page.goto(searchUrl, { waitUntil: 'domcontentloaded' });
+            await new Promise(r => setTimeout(r, 3000));
+            await dismissPopups(stagehand, page);
+            
+            // Check if this URL shows results or opened a search modal
+            const pageContent = await page.evaluate(() => document.body.innerText || '');
+            const hasResults = pageContent.toLowerCase().includes('result') || 
+                              pageContent.toLowerCase().includes('product');
+            
+            if (!hasResults) {
+              // URL opened but no results - try to type in visible search input
+              console.log(`  [AI] URL opened modal/page, trying to type...`);
+              for (const selector of searchSelectors) {
+                try {
+                  const typed = await page.evaluate((data: { sel: string, q: string }) => {
+                    const el = document.querySelector(data.sel) as HTMLInputElement | null;
+                    if (el && el.offsetParent !== null) {
+                      el.click();
+                      el.focus();
+                      el.value = data.q;
+                      el.dispatchEvent(new Event('input', { bubbles: true }));
+                      el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
+                      const form = el.closest('form');
+                      if (form) form.submit();
+                      return true;
+                    }
+                    return false;
+                  }, { sel: selector, q: query });
+                  
+                  if (typed) {
+                    await new Promise(r => setTimeout(r, 4000));
+                    break;
+                  }
+                } catch (e) { /* continue */ }
+              }
+            }
+            
+            // Final verification
+            const finalContent = await page.evaluate(() => document.body.innerText || '');
+            if (!finalContent.includes('Page not found') && !finalContent.includes('404')) {
+              console.log(`  [AI] ✓ Direct URL strategy completed`);
+              searchSucceeded = true;
+              break;
+            }
+          } catch (e) {
+            console.log(`  [AI] URL failed, trying next...`);
+          }
+        }
+      }
+      
+      // Log diagnostic if all strategies failed
+      if (!searchSucceeded) {
+        console.log(`  [AI] ⚠ All search strategies failed. Diagnostics:`);
+        const diagnostics = await page.evaluate(() => {
+          const inputs = Array.from(document.querySelectorAll('input'));
+          return inputs.slice(0, 10).map(i => ({
+            type: i.type,
+            name: i.name || '(none)',
+            placeholder: i.placeholder || '(none)',
+            visible: i.offsetParent !== null
+          }));
+        });
+        console.log(`  [AI] Visible inputs:`, JSON.stringify(diagnostics));
       }
       
       // Dismiss post-search popups
