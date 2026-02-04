@@ -391,11 +391,17 @@ export async function aiFullAnalysis(
     verdict: 'OUTREACH' | 'SKIP' | 'REVIEW' | 'INCONCLUSIVE';
     reason: string;
   };
-  // New adversarial data
+  // Adversarial data
   adversarial?: {
     queriesTested: QueryTestResult[];
     failedOnAttempt: number | null;
     proofQuery: string | null;
+  };
+  // Clean summary for UI
+  summary?: {
+    narrative: string;
+    queriesThatWork: string[];
+    journeySteps: string[];
   };
 }> {
   const startTime = Date.now();
@@ -668,6 +674,40 @@ Answer in 2-4 words only. Examples:
       reason = 'Analysis incomplete';
     }
     
+    // ========================================================================
+    // GENERATE NARRATIVE SUMMARY
+    // ========================================================================
+    
+    // Build the journey narrative
+    const journeySteps = queriesTested.map((q, i) => {
+      const status = q.passed ? '✅' : '❌';
+      const resultText = q.resultCount !== null ? `${q.resultCount} results` : 'unknown results';
+      return `${i + 1}. "${q.query}" → ${status} ${resultText}${q.passed ? '' : ' - FAILED'}`;
+    });
+    
+    let narrativeSummary = '';
+    if (proofQuery) {
+      const passedCount = queriesTested.filter(q => q.passed).length;
+      narrativeSummary = `We tested ${domain}'s search with ${queriesTested.length} progressively harder queries.\n\n` +
+        journeySteps.join('\n') + '\n\n' +
+        `CONCLUSION: Search worked for ${passedCount} simple queries but failed on "${proofQuery}". ` +
+        `This indicates the search cannot handle ${failedOnAttempt && failedOnAttempt > 2 ? 'abstract/themed' : 'natural language'} queries that real shoppers commonly use.`;
+    } else {
+      narrativeSummary = `We tested ${domain}'s search with ${queriesTested.length} queries of increasing difficulty.\n\n` +
+        journeySteps.join('\n') + '\n\n' +
+        `CONCLUSION: Search handled all test queries well. This site has robust search capabilities.`;
+    }
+    
+    // Generate "queries that would work" (simple keyword-based)
+    const queriesThatWork = [
+      `${brandSummary.split(' ')[0].toLowerCase()}`, // First word of brand summary
+      `new arrivals`,
+      `sale items`,
+      `best sellers`,
+      `${brandSummary.toLowerCase()} for men`,
+      `${brandSummary.toLowerCase()} for women`
+    ].filter(q => q.length > 2);
+    
     console.log(`\n[ADVERSARIAL] ========================================`);
     console.log(`[ADVERSARIAL] VERDICT: ${verdict}`);
     console.log(`[ADVERSARIAL] Queries tested: ${queriesTested.length}`);
@@ -720,6 +760,12 @@ Answer in 2-4 words only. Examples:
         queriesTested,
         failedOnAttempt,
         proofQuery
+      },
+      // NEW: Clean summary data
+      summary: {
+        narrative: narrativeSummary,
+        queriesThatWork,
+        journeySteps
       }
     };
     

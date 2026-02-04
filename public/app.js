@@ -17,7 +17,7 @@ async function startAnalysis() {
   }
 
   await runSmartAnalysis(domain);
-}
+  }
 
 /**
  * Run Smart Mode analysis (domain only)
@@ -97,14 +97,14 @@ async function runSmartAnalysis(domain) {
 }
 
 /**
- * Render Smart Mode results (Adversarial Testing)
+ * Render Smart Mode results (Adversarial Testing) - CLEAN VERSION
  */
 function renderSmartResults(data) {
   document.getElementById('loading-state').classList.add('hidden');
   document.getElementById('results-section').classList.add('hidden');
   document.getElementById('smart-results-section').classList.remove('hidden');
 
-  const { siteProfile, queriesTested, comparison, confidence, emailHook, screenshotUrls, durationMs, adversarial } = data;
+  const { siteProfile, comparison, confidence, screenshotUrls, durationMs, adversarial, summary } = data;
 
   // Verdict card
   const verdictCard = document.getElementById('smart-verdict-card');
@@ -126,17 +126,17 @@ function renderSmartResults(data) {
     'SKIP': { 
       class: 'verdict-skip', 
       badge: '✓ SKIP', 
-      title: 'Search Passed All Tests - Move On' 
+      title: 'Search Passed All Tests' 
     },
     'REVIEW': { 
       class: 'verdict-maybe', 
       badge: '? REVIEW', 
-      title: 'Worth Investigating Further' 
+      title: 'Worth Investigating' 
     },
     'INCONCLUSIVE': { 
       class: 'verdict-inconclusive', 
       badge: '⚠ INCONCLUSIVE', 
-      title: 'Could Not Fully Evaluate' 
+      title: 'Could Not Evaluate' 
     }
   };
 
@@ -144,132 +144,139 @@ function renderSmartResults(data) {
   verdictCard.className = `rounded-xl text-white p-8 ${vstyle.class}`;
   verdictBadge.textContent = vstyle.badge;
   verdictTitle.textContent = vstyle.title;
-  verdictReason.textContent = comparison?.verdictReason || data.reason || '';
+  verdictReason.textContent = '';  // We'll show this in the summary instead
 
-  // Confidence badge
-  const confLevel = confidence?.level || 'low';
-  confidenceBadge.className = `text-xs font-bold uppercase tracking-wider px-3 py-1 rounded-full confidence-${confLevel}`;
-  confidenceBadge.textContent = `${confLevel.toUpperCase()} CONFIDENCE`;
+  // Confidence badge - hide for cleaner look
+  confidenceBadge.className = 'hidden';
 
   // Duration
   if (durationMs) {
     durationEl.textContent = `${(durationMs / 1000).toFixed(1)}s`;
   }
 
-  // Site Profile
-  renderSiteProfile(siteProfile);
+  // Hide site profile for cleaner look
+  const profileGrid = document.getElementById('site-profile-grid');
+  if (profileGrid) profileGrid.innerHTML = '';
 
-  // Adversarial Query Progression (replaces comparison view)
-  if (adversarial?.queriesTested) {
-    renderAdversarialProgression(adversarial, screenshotUrls);
-  } else if (queriesTested && comparison) {
-    // Fallback to single query display
-    renderSingleQueryResult(queriesTested, comparison, screenshotUrls);
-  }
+  // Render clean screenshots + summary
+  renderCleanResults(adversarial, screenshotUrls, summary, siteProfile);
 
-  // Email hook
-  const hookEl = document.getElementById('smart-email-hook');
+  // Hide unnecessary sections
   const insightCard = document.getElementById('smart-insight-card');
-  if (emailHook) {
-    hookEl.textContent = emailHook;
-    insightCard.classList.remove('hidden');
-  } else {
-    insightCard.classList.add('hidden');
-  }
-
-  // Hide missed products (not relevant for adversarial)
+  if (insightCard) insightCard.classList.add('hidden');
   const missedCard = document.getElementById('missed-products-card');
   if (missedCard) missedCard.classList.add('hidden');
-
-  // All screenshots
-  renderSmartScreenshots(screenshotUrls, adversarial);
 
   // Raw JSON
   document.getElementById('smart-raw-json').textContent = JSON.stringify(data, null, 2);
 }
 
 /**
- * Render adversarial query progression
+ * Render CLEAN results - screenshots grid + narrative summary
  */
-function renderAdversarialProgression(adversarial, screenshots) {
+function renderCleanResults(adversarial, screenshots, summary, siteProfile) {
   const container = document.getElementById('comparison-container');
   if (!container) return;
   
-  const { queriesTested, failedOnAttempt, proofQuery } = adversarial;
+  const queriesTested = adversarial?.queriesTested || [];
+  const proofQuery = adversarial?.proofQuery;
+  const narrative = summary?.narrative || '';
+  const queriesThatWork = summary?.queriesThatWork || [];
+  
+  // Build screenshot grid HTML
+  const screenshotItems = [];
+  
+  // Homepage
+  if (screenshots?.homepage) {
+    screenshotItems.push({
+      url: screenshots.homepage,
+      label: 'Homepage',
+      sublabel: siteProfile?.companyName || ''
+    });
+  }
+  
+  // Each query result
+  queriesTested.forEach((q, i) => {
+    const url = screenshots[`results_${i + 1}`] || screenshots.results;
+    if (url) {
+      screenshotItems.push({
+        url: url,
+        label: q.passed ? `✅ Query ${i + 1}` : `❌ Query ${i + 1} (FAILED)`,
+        sublabel: `"${q.query}"`,
+        failed: !q.passed
+      });
+    }
+  });
   
   container.innerHTML = `
-    <div class="space-y-4">
-      <div class="flex items-center justify-between mb-4">
-        <h3 class="text-lg font-semibold text-slate-200">
-          <i class="fas fa-flask text-cyan-400 mr-2"></i>
-          Adversarial Search Test
-        </h3>
-        <span class="text-sm text-slate-400">
-          ${queriesTested.length} queries tested
-        </span>
-      </div>
-      
-      <div class="space-y-3">
-        ${queriesTested.map((q, i) => `
-          <div class="flex items-center gap-4 p-4 rounded-lg ${
-            q.passed 
-              ? 'bg-green-500/10 border border-green-500/30' 
-              : 'bg-red-500/10 border border-red-500/30'
-          }">
-            <div class="flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center ${
-              q.passed ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
-            }">
-              <i class="fas ${q.passed ? 'fa-check' : 'fa-times'}"></i>
+    <!-- SCREENSHOTS GRID -->
+    <div class="mb-8">
+      <h3 class="text-lg font-semibold text-slate-200 mb-4">
+        <i class="fas fa-images text-cyan-400 mr-2"></i>
+        Screenshots
+      </h3>
+      <div class="grid grid-cols-2 md:grid-cols-${Math.min(screenshotItems.length, 4)} gap-4">
+        ${screenshotItems.map(item => `
+          <div class="cursor-pointer group" onclick="openModal('${item.url}', '${item.label}')">
+            <div class="aspect-video rounded-lg overflow-hidden border-2 ${
+              item.failed ? 'border-red-500/50' : 'border-slate-700'
+            } group-hover:border-cyan-500 transition">
+              <img src="${item.url}" alt="${item.label}" class="w-full h-full object-cover object-top">
             </div>
-            <div class="flex-grow">
-              <div class="flex items-center gap-2">
-                <span class="text-xs text-slate-500">Query ${q.attempt}</span>
-                ${!q.passed ? '<span class="text-xs bg-red-500/30 text-red-300 px-2 py-0.5 rounded">PROOF</span>' : ''}
-              </div>
-              <p class="font-mono text-sm ${q.passed ? 'text-green-300' : 'text-red-300'}">
-                "${q.query}"
-              </p>
-              <p class="text-xs text-slate-400 mt-1">
-                ${q.resultCount !== null ? `${q.resultCount} results` : 'Unknown results'} 
-                ${q.reasoning ? `— ${q.reasoning.substring(0, 80)}${q.reasoning.length > 80 ? '...' : ''}` : ''}
-              </p>
-            </div>
-            ${q.screenshotPath ? `
-              <button 
-                onclick="openModal('${screenshots['results_' + q.attempt] || screenshots.results}', 'Query ${q.attempt} Results')"
-                class="flex-shrink-0 text-slate-400 hover:text-cyan-400 transition"
-              >
-                <i class="fas fa-image"></i>
-              </button>
-            ` : ''}
+            <p class="text-sm font-medium mt-2 ${item.failed ? 'text-red-400' : 'text-slate-300'}">${item.label}</p>
+            <p class="text-xs text-slate-500 truncate">${item.sublabel}</p>
           </div>
         `).join('')}
       </div>
-      
-      ${proofQuery ? `
-        <div class="mt-6 p-4 rounded-lg bg-red-500/10 border border-red-500/30">
-          <h4 class="font-semibold text-red-400 mb-2">
-            <i class="fas fa-exclamation-triangle mr-2"></i>
-            Proof of Search Weakness
-          </h4>
-          <p class="text-slate-300">
-            Search failed on query <span class="font-mono bg-red-500/20 px-2 py-0.5 rounded">"${proofQuery}"</span>
-            after ${failedOnAttempt - 1} successful tests.
-          </p>
-        </div>
-      ` : `
-        <div class="mt-6 p-4 rounded-lg bg-green-500/10 border border-green-500/30">
-          <h4 class="font-semibold text-green-400 mb-2">
-            <i class="fas fa-shield-alt mr-2"></i>
-            Search is Robust
-          </h4>
-          <p class="text-slate-300">
-            All ${queriesTested.length} test queries passed. This site handles natural language search well.
-          </p>
-        </div>
-      `}
     </div>
+    
+    <!-- NARRATIVE SUMMARY -->
+    <div class="mb-8 p-6 rounded-xl bg-slate-800/70 border border-slate-700">
+      <h3 class="text-lg font-semibold text-slate-200 mb-4">
+        <i class="fas fa-file-alt text-cyan-400 mr-2"></i>
+        Analysis Summary
+      </h3>
+      <div class="text-slate-300 whitespace-pre-line font-mono text-sm leading-relaxed">
+        ${narrative || 'No summary available.'}
+      </div>
+    </div>
+    
+    ${proofQuery ? `
+    <!-- PROOF OF FAILURE -->
+    <div class="mb-8 p-6 rounded-xl bg-red-500/10 border border-red-500/30">
+      <h3 class="text-lg font-semibold text-red-400 mb-2">
+        <i class="fas fa-exclamation-triangle mr-2"></i>
+        Proof Query (Use This in Outreach)
+      </h3>
+      <p class="text-2xl font-mono text-red-300">"${proofQuery}"</p>
+      <p class="text-sm text-slate-400 mt-2">This query returned no relevant results, proving their search needs improvement.</p>
+    </div>
+    ` : ''}
+    
+    <!-- QUERIES THAT WOULD WORK -->
+    ${queriesThatWork.length > 0 ? `
+    <div class="p-6 rounded-xl bg-slate-800/50 border border-slate-700">
+      <h3 class="text-lg font-semibold text-slate-200 mb-4">
+        <i class="fas fa-lightbulb text-amber-400 mr-2"></i>
+        Queries That Would Work (Simple Keywords)
+      </h3>
+      <div class="flex flex-wrap gap-2">
+        ${queriesThatWork.map(q => `
+          <span class="px-3 py-1.5 rounded-full bg-slate-700 text-slate-300 text-sm font-mono">${q}</span>
+        `).join('')}
+      </div>
+      <p class="text-xs text-slate-500 mt-3">These simple keyword searches would likely return results, but shoppers often use natural language instead.</p>
+    </div>
+    ` : ''}
   `;
+}
+
+/**
+ * Render adversarial query progression (LEGACY - kept for compatibility)
+ */
+function renderAdversarialProgression(adversarial, screenshots) {
+  // Now handled by renderCleanResults
+  renderCleanResults(adversarial, screenshots, null, null);
 }
 
 /**
@@ -300,13 +307,13 @@ function renderSingleQueryResult(queries, comparison, screenshots) {
             <p class="text-sm ${comparison.nlRelevance === 'high' ? 'text-green-400' : comparison.nlRelevance === 'none' ? 'text-red-400' : 'text-amber-400'}">
               ${comparison.nlRelevance?.toUpperCase() || 'Unknown'}
             </p>
-          </div>
-        </div>
+      </div>
+      </div>
         ${screenshots?.results ? `
           <div class="mt-4 cursor-pointer" onclick="openModal('${screenshots.results}', 'Search Results')">
             <img src="${screenshots.results}" alt="Search Results" class="rounded-lg border border-slate-600 max-h-64 object-cover object-top">
-          </div>
-        ` : ''}
+      </div>
+      ` : ''}
       </div>
     </div>
   `;
@@ -364,7 +371,7 @@ function renderSiteProfile(profile) {
         <div class="flex items-center gap-2 mb-2">
           <i class="fas fa-eye text-cyan-400"></i>
           <span class="text-xs text-slate-500 uppercase">Visible Products</span>
-        </div>
+    </div>
         <div class="flex flex-wrap gap-1">
           ${profile.visibleProducts.slice(0, 6).map(p => 
             `<span class="text-xs bg-slate-700 px-2 py-1 rounded text-slate-300">${p}</span>`
@@ -413,50 +420,13 @@ function renderMissedProducts(missedProducts) {
 }
 
 /**
- * Render smart screenshots grid (Adversarial version)
+ * Render smart screenshots grid - NOW EMPTY (handled by renderCleanResults)
  */
 function renderSmartScreenshots(urls, adversarial) {
-  if (!urls) return;
-  
+  // Screenshots are now rendered inside renderCleanResults
+  // Hide the separate screenshots section
   const grid = document.getElementById('smart-screenshots-grid');
-  
-  // Build stages dynamically based on adversarial results
-  const stages = [
-    { key: 'homepage', label: 'Homepage', icon: 'fa-home', color: 'text-cyan-400' },
-  ];
-  
-  // Add screenshots for each tested query
-  if (adversarial?.queriesTested) {
-    adversarial.queriesTested.forEach((q, i) => {
-      stages.push({
-        key: `results_${i + 1}`,
-        label: `Query ${i + 1}: ${q.passed ? 'Passed' : 'FAILED'}`,
-        icon: q.passed ? 'fa-check-circle' : 'fa-times-circle',
-        color: q.passed ? 'text-green-400' : 'text-red-400',
-        query: q.query
-      });
-    });
-  } else {
-    // Fallback to single results screenshot
-    stages.push({ key: 'results', label: 'Search Results', icon: 'fa-search', color: 'text-cyan-400' });
-  }
-
-  grid.innerHTML = stages.map(stage => {
-    const url = urls[stage.key];
-    if (!url) return '';
-    return `
-      <div class="group cursor-pointer" onclick="openModal('${url}', '${stage.label}')">
-        <div class="screenshot-container rounded-lg overflow-hidden border border-slate-700 group-hover:border-slate-500 transition">
-          <img src="${url}" alt="${stage.label}">
-        </div>
-        <p class="text-sm text-slate-400 mt-2 flex items-center gap-2">
-          <i class="fas ${stage.icon} ${stage.color}"></i>
-          ${stage.label}
-        </p>
-        ${stage.query ? `<p class="text-xs text-slate-500 font-mono truncate">"${stage.query}"</p>` : ''}
-      </div>
-    `;
-  }).join('');
+  if (grid) grid.innerHTML = '';
 }
 
 /**
