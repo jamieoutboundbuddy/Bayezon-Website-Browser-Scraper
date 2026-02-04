@@ -212,6 +212,24 @@ async function dismissPopups(stagehand: Stagehand, page: any): Promise<void> {
           btn.click();
         }
       });
+      
+      // Look for "No thanks" links/buttons (email signup popups)
+      const allClickable = document.querySelectorAll('button, a, span, div');
+      const dismissTexts = ['no thanks', 'no, thanks', 'skip', 'not now', 'maybe later', 'close', 'x'];
+      allClickable.forEach((el: any) => {
+        const text = (el.textContent || '').toLowerCase().trim();
+        if (dismissTexts.some(t => text === t || text.includes(t)) && el.offsetParent !== null) {
+          el.click();
+        }
+      });
+      
+      // Click modal overlays/backdrops
+      const overlays = document.querySelectorAll('[class*="overlay"], [class*="backdrop"], [class*="modal-bg"]');
+      overlays.forEach((el: any) => {
+        if (el && el.offsetParent !== null) {
+          el.click();
+        }
+      });
     });
     console.log('  [AI] ✓ JS popup/cookie dismissal complete');
   } catch (e: any) {
@@ -220,10 +238,10 @@ async function dismissPopups(stagehand: Stagehand, page: any): Promise<void> {
   
   await new Promise(resolve => setTimeout(resolve, 500));
   
-  // Strategy 3: Stagehand AI as backup
+  // Strategy 3: Stagehand AI as backup - specifically handles email signup popups
   try {
     await stagehand.act(
-      "If you see a cookie consent popup, privacy notice, or newsletter signup blocking the page, click Accept All or the close/X button to dismiss it. Otherwise do nothing."
+      "Look for any popup, modal, or overlay blocking the page. This includes: email signup popups (click 'No thanks' or 'X'), cookie consent (click 'Accept'), newsletter modals (click 'Close' or 'Skip'). Click the appropriate dismiss button."
     );
     console.log('  [AI] ✓ Stagehand popup check complete');
   } catch (e: any) {
