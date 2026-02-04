@@ -642,58 +642,87 @@ Answer in 2-4 words only. Examples:
       
       // PRIMARY: Stagehand AI to interact with search (universal approach)
       try {
-        // Step 1: Find and click search icon to open search
+        // Step 1: Dismiss any popups first
+        await dismissPopups(stagehand, page);
+        
+        // Step 2: Find and click search icon
         console.log(`  [AI] Step 1: Opening search...`);
-        await stagehand.act("Click the search icon (magnifying glass) in the header to open search");
-        await new Promise(r => setTimeout(r, 2500)); // Wait for modal/overlay to appear
+        await stagehand.act("Find the search icon (usually a magnifying glass in the header/nav area) and click it to open the search functionality");
+        await new Promise(r => setTimeout(r, 3000)); // Longer wait for modal animation
         
-        // Step 2: Find the MAIN search input (could be a modal that appeared) and type
-        console.log(`  [AI] Step 2: Typing query...`);
-        await stagehand.act(`Find the large/main search text input field (if a search modal or overlay appeared, use that input). Click on it to focus, then type: ${query}`);
-        await new Promise(r => setTimeout(r, 1500));
+        // Step 3: Find the ACTIVE/VISIBLE search input and type
+        // This is critical - target the input that's currently visible/focused
+        console.log(`  [AI] Step 2: Typing into search input...`);
+        await stagehand.act(`Find the search input field that is currently visible and active (it may be in a modal/overlay that just appeared). Click directly inside the text input box to focus it, then type exactly: ${query}`);
+        await new Promise(r => setTimeout(r, 2000));
         
-        // Step 3: Submit the search by pressing Enter
+        // Step 4: Submit - be very explicit
         console.log(`  [AI] Step 3: Submitting search...`);
-        await stagehand.act("Press the Enter key or click the search submit button to execute the search");
-        await new Promise(r => setTimeout(r, 4000));
+        await stagehand.act("Submit the search by pressing Enter key on the keyboard or clicking the search/submit button next to the input");
+        await new Promise(r => setTimeout(r, 5000)); // Longer wait for results
         
-        // Verify we navigated to results
+        // Verify we got results
         const currentUrl = page.url();
         const pageContent = await page.evaluate(() => document.body.innerText || '');
         
-        // Check for signs of success: URL changed OR page has product-related content
         const urlHasSearch = currentUrl.includes('search') || currentUrl.includes('query') || currentUrl.includes('q=') || currentUrl.includes('result');
-        const hasProducts = pageContent.includes('product') || pageContent.includes('result') || pageContent.includes('item');
+        const hasResultIndicators = pageContent.toLowerCase().includes('result') || 
+                                    pageContent.toLowerCase().includes('product') ||
+                                    pageContent.includes('0 results') ||
+                                    pageContent.includes('No results');
         
-        if (urlHasSearch || hasProducts) {
+        if (urlHasSearch && hasResultIndicators) {
           console.log(`  [AI] ✓ Search executed successfully`);
           searchSucceeded = true;
         } else {
-          console.log(`  [AI] Search may not have worked. URL: ${currentUrl.substring(0, 60)}`);
+          console.log(`  [AI] Search verification uncertain. URL: ${currentUrl.substring(0, 60)}`);
         }
       } catch (stagehandError: any) {
         console.log(`  [AI] Stagehand search failed: ${stagehandError.message?.substring(0, 100)}`);
       }
       
-      // FALLBACK: If Stagehand didn't work, try common direct URL patterns
+      // FALLBACK: Direct URL + still interact with the page
       if (!searchSucceeded) {
-        console.log(`  [AI] Trying fallback: direct URL patterns...`);
+        console.log(`  [AI] Trying fallback: direct URL + page interaction...`);
         try {
           const searchUrls = [
             `${url}/search?q=${encodeURIComponent(query)}`,
             `${url}/search?query=${encodeURIComponent(query)}`,
-            `${url}/catalogsearch/result/?q=${encodeURIComponent(query)}`,
-            `${url}/?s=${encodeURIComponent(query)}`,
+            `${url}/pages/search-results-page?q=${encodeURIComponent(query)}`,
           ];
           
           for (const searchUrl of searchUrls) {
-            console.log(`  [AI] Trying: ${searchUrl.substring(0, 60)}...`);
+            console.log(`  [AI] Trying: ${searchUrl.substring(0, 70)}...`);
             await page.goto(searchUrl, { waitUntil: 'domcontentloaded' });
             await new Promise(r => setTimeout(r, 3000));
             
+            // Dismiss popups that appeared
+            await dismissPopups(stagehand, page);
+            
+            // Check if we need to still type in a search box
+            // Some sites open a modal on /search URL
             const pageContent = await page.evaluate(() => document.body.innerText || '');
-            if (!pageContent.includes('Not Found') && !pageContent.includes('Page not found') && !pageContent.includes('404')) {
-              console.log(`  [AI] ✓ Fallback URL worked`);
+            const hasSearchResults = pageContent.toLowerCase().includes('result') || 
+                                     pageContent.toLowerCase().includes('product') ||
+                                     pageContent.includes('found');
+            
+            if (!hasSearchResults) {
+              // The URL opened but didn't show results - try to type in the search
+              console.log(`  [AI] No results visible, trying to type in search...`);
+              try {
+                await stagehand.act(`Find any visible search input field and type: ${query}`);
+                await new Promise(r => setTimeout(r, 1000));
+                await stagehand.act("Press Enter or click the search button to submit");
+                await new Promise(r => setTimeout(r, 4000));
+              } catch (e) {
+                console.log(`  [AI] Could not interact with search on this page`);
+              }
+            }
+            
+            // Final check
+            const finalContent = await page.evaluate(() => document.body.innerText || '');
+            if (!finalContent.includes('Page not found') && !finalContent.includes('404')) {
+              console.log(`  [AI] ✓ Fallback completed`);
               searchSucceeded = true;
               break;
             }
