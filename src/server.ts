@@ -564,12 +564,51 @@ process.on('SIGTERM', () => {
 });
 
 /**
+ * Verify database tables exist on startup
+ */
+async function verifyDatabaseTables() {
+  try {
+    const db = getDb();
+    if (!db) {
+      console.error('[DB] Database connection not available');
+      return;
+    }
+    
+    console.log('[DB] Checking database tables...');
+    const tables = await db.$queryRaw<{table_name: string}[]>`
+      SELECT table_name 
+      FROM information_schema.tables 
+      WHERE table_schema = 'public'
+    `;
+    
+    const tableNames = tables.map(t => t.table_name);
+    console.log('[DB] Found tables:', tableNames.join(', '));
+    
+    // Check for required batch tables
+    const requiredTables = ['batch_jobs', 'batch_job_items'];
+    const missingTables = requiredTables.filter(t => !tableNames.includes(t));
+    
+    if (missingTables.length > 0) {
+      console.error('[DB] Missing required tables:', missingTables.join(', '));
+      console.error('[DB] Run "npx prisma db push" to create missing tables');
+    } else {
+      console.log('[DB] All required batch tables present ✓');
+    }
+  } catch (error: any) {
+    console.error('[DB] Error checking tables:', error.message);
+  }
+}
+
+/**
  * Start server (only if not in Vercel/serverless environment)
  */
 if (process.env.VERCEL !== '1') {
-  app.listen(PORT, '0.0.0.0', () => {
+  app.listen(PORT, '0.0.0.0', async () => {
     console.log(`🚀 Website Search Tool server running on http://localhost:${PORT}`);
     console.log(`📸 Screenshots will be saved to ./artifacts/`);
+    
+    // Verify database tables
+    await verifyDatabaseTables();
     
     // Start the batch processor
     startBatchProcessor();
