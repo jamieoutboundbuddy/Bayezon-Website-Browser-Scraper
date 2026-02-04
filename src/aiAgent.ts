@@ -260,7 +260,7 @@ Return JSON only:
     const researchResponse = await openai.chat.completions.create({
       model: 'gpt-5-mini',
       messages: [{ role: 'user', content: queryPrompt }],
-      max_tokens: 200,
+      max_completion_tokens: 200,
       temperature: 0.3
     });
     
