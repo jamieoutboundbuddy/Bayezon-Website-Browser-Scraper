@@ -539,12 +539,16 @@ Answer in 2-4 words only. Examples:
       }
       
       // ============================================================
-      // SEARCH - Three steps: OPEN, TYPE, SUBMIT
+      // SEARCH - Three steps: OPEN, TYPE, SUBMIT with verification
       // ============================================================
       console.log(`  [AI] Executing search for: "${query}"`);
       
       // Dismiss popups first
       await dismissPopups(stagehand, page);
+      
+      // Store URL before search to verify navigation
+      const urlBeforeSearch = page.url();
+      let searchSucceeded = false;
       
       try {
         // Step 1: Click to open search (icon, button, or input)
@@ -564,17 +568,63 @@ Answer in 2-4 words only. Examples:
         
         await new Promise(r => setTimeout(r, 500));
         
-        // Step 3: Submit the search
+        // Step 3: Submit the search by pressing Enter
         console.log(`  [AI] Step 3: Submitting search...`);
         await stagehand.act(
-          `Press Enter to submit the search`
+          `Press the Enter key on the keyboard to submit the search and navigate to results`
         );
         
         // Wait for results page to load
         await new Promise(r => setTimeout(r, 4000));
         
-        // Verify we got results
-        const currentUrl = page.url();
+        // Verify URL has changed (indicates navigation to results page)
+        const urlAfterSearch = page.url();
+        console.log(`  [AI] URL before: ${urlBeforeSearch}`);
+        console.log(`  [AI] URL after: ${urlAfterSearch}`);
+        
+        if (urlAfterSearch !== urlBeforeSearch) {
+          console.log(`  [AI] ✓ URL changed - search navigated to results`);
+          searchSucceeded = true;
+        } else {
+          console.log(`  [AI] ⚠ URL unchanged - trying click submit button...`);
+          
+          // Try clicking a submit button instead
+          try {
+            await stagehand.act(
+              `Click the search submit button or magnifying glass icon to submit the search`
+            );
+            await new Promise(r => setTimeout(r, 3000));
+            
+            const urlAfterRetry = page.url();
+            if (urlAfterRetry !== urlBeforeSearch) {
+              console.log(`  [AI] ✓ Click submit worked - navigated to results`);
+              searchSucceeded = true;
+            }
+          } catch {
+            // Continue to fallback
+          }
+        }
+        
+        // Fallback: Direct URL navigation if still on homepage
+        if (!searchSucceeded) {
+          console.log(`  [AI] ⚠ Trying direct URL navigation as fallback...`);
+          const encodedQuery = encodeURIComponent(query);
+          const searchUrl = `${url}search?q=${encodedQuery}`;
+          try {
+            await page.goto(searchUrl, { waitUntil: 'domcontentloaded' });
+            await new Promise(r => setTimeout(r, 3000));
+            
+            const urlAfterFallback = page.url();
+            if (urlAfterFallback.includes('search')) {
+              console.log(`  [AI] ✓ Direct URL fallback succeeded`);
+              searchSucceeded = true;
+            }
+          } catch {
+            console.log(`  [AI] ⚠ Direct URL fallback failed`);
+          }
+        }
+        
+        // Final verification - check for results on page
         const hasResults = await page.evaluate(() => {
           const text = document.body.innerText.toLowerCase();
           return text.includes('result') || text.includes('product') || 
@@ -582,12 +632,11 @@ Answer in 2-4 words only. Examples:
                  document.querySelectorAll('[class*="product"], .product-card, .product-grid').length > 0;
         });
         
-        console.log(`  [AI] Current URL: ${currentUrl}`);
-        if (hasResults) {
-          console.log(`  [AI] ✓ Search succeeded with results`);
-        } else {
-          console.log(`  [AI] Search executed but no results visible`);
-        }
+        const currentUrl = page.url();
+        console.log(`  [AI] Final URL: ${currentUrl}`);
+        console.log(`  [AI] Has results indicators: ${hasResults}`);
+        console.log(`  [AI] Search succeeded: ${searchSucceeded}`);
+        
       } catch (e: any) {
         console.log(`  [AI] Search failed: ${e.message?.substring(0, 80)}`);
       }
@@ -595,7 +644,17 @@ Answer in 2-4 words only. Examples:
       // Dismiss post-search popups
       await dismissPopups(stagehand, page);
       
-      // Screenshot results
+      // Check if we're still on homepage (search navigation failed)
+      const finalUrl = page.url();
+      const stillOnHomepage = finalUrl === urlBeforeSearch || 
+                              finalUrl === url || 
+                              (finalUrl.replace(/\/$/, '') === url.replace(/\/$/, ''));
+      
+      if (stillOnHomepage) {
+        console.log(`  [AI] ⚠ STILL ON HOMEPAGE - Search navigation completely failed`);
+      }
+      
+      // Screenshot results (or homepage if search failed)
       await page.evaluate(() => window.scrollTo(0, 0));
       await new Promise(r => setTimeout(r, 500));
       
@@ -607,9 +666,20 @@ Answer in 2-4 words only. Examples:
       });
       console.log(`  [AI] ✓ Results screenshot: ${resultsScreenshotPath}`);
       
-      // Evaluate results
-      const resultsBase64 = fs.readFileSync(resultsScreenshotPath).toString('base64');
-      const evaluation = await evaluateSearchResults(openai, query, resultsBase64);
+      // Evaluate results - but if still on homepage, it's definitely a failure
+      let evaluation;
+      if (stillOnHomepage) {
+        console.log(`  [AI] Marking as failure - screenshot is homepage, not search results`);
+        evaluation = {
+          isSignificantFailure: true,
+          resultCount: 0,
+          productsFound: [],
+          reasoning: 'Search execution failed - never navigated to search results page (still on homepage)'
+        };
+      } else {
+        const resultsBase64 = fs.readFileSync(resultsScreenshotPath).toString('base64');
+        evaluation = await evaluateSearchResults(openai, query, resultsBase64);
+      }
       
       console.log(`  [AI] Result count: ${evaluation.resultCount ?? 'unknown'}`);
       console.log(`  [AI] Significant failure: ${evaluation.isSignificantFailure}`);
