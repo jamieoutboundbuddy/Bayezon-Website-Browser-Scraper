@@ -532,7 +532,16 @@ function copyBatchId() {
 }
 
 /**
+ * Initialize page on load
+ */
+document.addEventListener('DOMContentLoaded', () => {
+  // Set initial tab state (single tab active)
+  switchTab('single');
+});
+
+/**
  * Keyboard shortcuts
+ */
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') closeModal();
   if (e.key === 'Enter' && e.target.tagName === 'INPUT') startAnalysis();
