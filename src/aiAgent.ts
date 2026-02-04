@@ -862,11 +862,11 @@ Answer in 2-4 words only. Examples:
         query,
         attempt,
         passed: !evaluation.isSignificantFailure,
-        resultCount: evaluation.resultCount,
-        relevantResultCount: evaluation.relevantResultCount,
-        firstRelevantPosition: evaluation.firstRelevantPosition,
-        productsFound: evaluation.productsFound,
-        reasoning: evaluation.reasoning,
+        resultCount: evaluation.resultCount ?? null,
+        relevantResultCount: evaluation.relevantResultCount ?? 0,
+        firstRelevantPosition: evaluation.firstRelevantPosition ?? null,
+        productsFound: evaluation.productsFound ?? [],
+        reasoning: evaluation.reasoning ?? 'No reasoning provided',
         screenshotPath: resultsScreenshotPath
       };
       queriesTested.push(testResult);
