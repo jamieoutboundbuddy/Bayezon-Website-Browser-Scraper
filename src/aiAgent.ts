@@ -631,68 +631,66 @@ Answer in 2-4 words only. Examples:
         await dismissPopups(stagehand, page);
       }
       
-      // Execute search - COMBINED APPROACH with verification and fallback
+      // Execute search - DIRECT URL APPROACH (most reliable)
+      // Stagehand typing/clicking is unreliable, so we use direct URL navigation
       let searchSucceeded = false;
       
+      console.log(`  [AI] Executing search for: "${query}"`);
+      
+      // PRIMARY: Direct URL navigation (most reliable)
       try {
-        console.log(`  [AI] Executing search for: "${query}"`);
+        // Try common search URL patterns
+        const searchUrls = [
+          `${url}/search?q=${encodeURIComponent(query)}`,
+          `${url}/search?query=${encodeURIComponent(query)}`,
+          `${url}/pages/search-results?q=${encodeURIComponent(query)}`,
+        ];
         
-        // Single comprehensive Stagehand instruction
-        await stagehand.act(
-          `Complete these steps to search:
-          1. If any popup is visible, close it first (click "No thanks" or X)
-          2. Find the search bar or search icon (usually in the header/navigation)
-          3. Click to focus the search input
-          4. Type this exact text: ${query}
-          5. Press Enter to submit the search`
-        );
-        
-        // Wait for navigation
-        await new Promise(r => setTimeout(r, 4000));
-        
-        // Verify we're on a search results page
-        const currentUrl = page.url();
-        searchSucceeded = currentUrl.includes('search') || currentUrl.includes('query') || currentUrl.includes('q=');
-        
-        if (searchSucceeded) {
-          console.log(`  [AI] ✓ Search executed successfully`);
-        } else {
-          console.log(`  [AI] Search may not have completed, URL: ${currentUrl}`);
+        for (const searchUrl of searchUrls) {
+          console.log(`  [AI] Trying: ${searchUrl}`);
+          await page.goto(searchUrl, { waitUntil: 'domcontentloaded' });
+          await new Promise(r => setTimeout(r, 3000));
+          
+          // Check if we got a valid page (not a 404)
+          const currentUrl = page.url();
+          const pageContent = await page.evaluate(() => document.body.innerText || '');
+          
+          // Valid if URL has search params AND page doesn't show 404
+          if (currentUrl.includes('search') && !pageContent.includes('Not Found') && !pageContent.includes('Page not found')) {
+            console.log(`  [AI] ✓ Direct search URL worked`);
+            searchSucceeded = true;
+            break;
+          }
         }
-        
-      } catch (searchError: any) {
-        console.log(`  [AI] Stagehand search failed: ${searchError.message?.substring(0, 50)}`);
+      } catch (urlError: any) {
+        console.log(`  [AI] Direct URL failed: ${urlError.message?.substring(0, 50)}`);
       }
       
-      // FALLBACK: If search didn't work, try direct URL navigation
+      // FALLBACK: If direct URL didn't work, try Stagehand
       if (!searchSucceeded) {
-        console.log(`  [AI] Trying fallback: direct search URL...`);
+        console.log(`  [AI] Trying Stagehand search...`);
         try {
-          // Try common search URL patterns
-          const searchUrls = [
-            `${url}/search?q=${encodeURIComponent(query)}`,
-            `${url}/search?query=${encodeURIComponent(query)}`,
-            `${url}/pages/search-results?q=${encodeURIComponent(query)}`,
-          ];
+          // Step 1: Find and click search
+          await stagehand.act("Click on the search icon or search bar in the header to open/focus it");
+          await new Promise(r => setTimeout(r, 1500));
           
-          for (const searchUrl of searchUrls) {
-            await page.goto(searchUrl, { waitUntil: 'domcontentloaded' });
-            await new Promise(r => setTimeout(r, 3000));
-            
-            // Check if we got results (not a 404)
-            const pageContent = await page.evaluate(() => document.body.innerText || '');
-            if (!pageContent.includes('Not Found') && !pageContent.includes('404')) {
-              console.log(`  [AI] ✓ Fallback search URL worked`);
-              searchSucceeded = true;
-              break;
-            }
-          }
+          // Step 2: Type using keyboard
+          await page.keyboard.type(query, { delay: 50 });
+          await new Promise(r => setTimeout(r, 500));
           
-          if (!searchSucceeded) {
-            console.log(`  [AI] All fallback URLs failed`);
+          // Step 3: Press Enter explicitly
+          await page.keyboard.press('Enter');
+          await new Promise(r => setTimeout(r, 4000));
+          
+          // Verify navigation
+          const currentUrl = page.url();
+          searchSucceeded = currentUrl.includes('search') || currentUrl.includes('query') || currentUrl.includes('q=');
+          
+          if (searchSucceeded) {
+            console.log(`  [AI] ✓ Stagehand search succeeded`);
           }
-        } catch (fallbackError: any) {
-          console.log(`  [AI] Fallback failed: ${fallbackError.message?.substring(0, 50)}`);
+        } catch (stagehandError: any) {
+          console.log(`  [AI] Stagehand search failed: ${stagehandError.message?.substring(0, 50)}`);
         }
       }
       
