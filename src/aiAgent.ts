@@ -638,19 +638,19 @@ Answer in 2-4 words only. Examples:
       
       // PRIMARY: Stagehand AI to interact with search (universal approach)
       try {
-        // Step 1: Find and click search icon/bar
-        console.log(`  [AI] Step 1: Finding search...`);
-        await stagehand.act("Find and click the search icon or search bar. It's usually a magnifying glass icon or a text input in the header/navigation area.");
-        await new Promise(r => setTimeout(r, 2000));
+        // Step 1: Find and click search icon to open search
+        console.log(`  [AI] Step 1: Opening search...`);
+        await stagehand.act("Click the search icon (magnifying glass) in the header to open search");
+        await new Promise(r => setTimeout(r, 2500)); // Wait for modal/overlay to appear
         
-        // Step 2: Type the query into the search input
+        // Step 2: Find the MAIN search input (could be a modal that appeared) and type
         console.log(`  [AI] Step 2: Typing query...`);
-        await stagehand.act(`Type exactly this text into the search input: ${query}`);
-        await new Promise(r => setTimeout(r, 1000));
+        await stagehand.act(`Find the large/main search text input field (if a search modal or overlay appeared, use that input). Click on it to focus, then type: ${query}`);
+        await new Promise(r => setTimeout(r, 1500));
         
-        // Step 3: Submit the search
+        // Step 3: Submit the search by pressing Enter
         console.log(`  [AI] Step 3: Submitting search...`);
-        await stagehand.act("Submit the search by pressing Enter or clicking the search/submit button");
+        await stagehand.act("Press the Enter key or click the search submit button to execute the search");
         await new Promise(r => setTimeout(r, 4000));
         
         // Verify we navigated to results
