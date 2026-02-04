@@ -570,15 +570,29 @@ Answer in 2-4 words only. Examples:
         
         // Step 3: Submit the search by pressing Enter
         console.log(`  [AI] Step 3: Submitting search...`);
-        await stagehand.act(
-          `Press the Enter key on the keyboard to submit the search and navigate to results`
-        );
+        try {
+          await stagehand.act(
+            `Press the Enter key on the keyboard to submit the search and navigate to results`
+          );
+        } catch (submitError: any) {
+          // "Cannot find context" error means the page navigated - this is SUCCESS!
+          if (submitError.message?.includes('Cannot find context') || 
+              submitError.message?.includes('context with specified id')) {
+            console.log(`  [AI] ✓ Page navigated (context destroyed) - search likely succeeded`);
+          } else {
+            console.log(`  [AI] Submit error (will verify URL): ${submitError.message?.substring(0, 60)}`);
+          }
+        }
         
-        // Wait for results page to load
+        // Wait for results page to load (important after navigation)
         await new Promise(r => setTimeout(r, 4000));
         
+        // Get fresh page reference after potential navigation
+        const pages = stagehand.context.pages();
+        const currentPage = pages[pages.length - 1] || page;
+        
         // Verify URL has changed (indicates navigation to results page)
-        const urlAfterSearch = page.url();
+        const urlAfterSearch = currentPage.url();
         console.log(`  [AI] URL before: ${urlBeforeSearch}`);
         console.log(`  [AI] URL after: ${urlAfterSearch}`);
         
@@ -595,7 +609,7 @@ Answer in 2-4 words only. Examples:
             );
             await new Promise(r => setTimeout(r, 3000));
             
-            const urlAfterRetry = page.url();
+            const urlAfterRetry = currentPage.url();
             if (urlAfterRetry !== urlBeforeSearch) {
               console.log(`  [AI] ✓ Click submit worked - navigated to results`);
               searchSucceeded = true;
@@ -611,10 +625,10 @@ Answer in 2-4 words only. Examples:
           const encodedQuery = encodeURIComponent(query);
           const searchUrl = `${url}search?q=${encodedQuery}`;
           try {
-            await page.goto(searchUrl, { waitUntil: 'domcontentloaded' });
+            await currentPage.goto(searchUrl, { waitUntil: 'domcontentloaded' });
             await new Promise(r => setTimeout(r, 3000));
             
-            const urlAfterFallback = page.url();
+            const urlAfterFallback = currentPage.url();
             if (urlAfterFallback.includes('search')) {
               console.log(`  [AI] ✓ Direct URL fallback succeeded`);
               searchSucceeded = true;
@@ -625,15 +639,15 @@ Answer in 2-4 words only. Examples:
         }
         
         // Final verification - check for results on page
-        const hasResults = await page.evaluate(() => {
+        const hasResults = await currentPage.evaluate(() => {
           const text = document.body.innerText.toLowerCase();
           return text.includes('result') || text.includes('product') || 
                  text.includes('showing') || text.includes('found') ||
                  document.querySelectorAll('[class*="product"], .product-card, .product-grid').length > 0;
         });
         
-        const currentUrl = page.url();
-        console.log(`  [AI] Final URL: ${currentUrl}`);
+        const verifiedUrl = currentPage.url();
+        console.log(`  [AI] Final URL: ${verifiedUrl}`);
         console.log(`  [AI] Has results indicators: ${hasResults}`);
         console.log(`  [AI] Search succeeded: ${searchSucceeded}`);
         
@@ -641,25 +655,31 @@ Answer in 2-4 words only. Examples:
         console.log(`  [AI] Search failed: ${e.message?.substring(0, 80)}`);
       }
       
+      // Get the current page after potential navigation (page context may have changed)
+      const pagesAfterSearch = stagehand.context.pages();
+      const activePage = pagesAfterSearch[pagesAfterSearch.length - 1] || page;
+      
       // Dismiss post-search popups
-      await dismissPopups(stagehand, page);
+      await dismissPopups(stagehand, activePage);
       
       // Check if we're still on homepage (search navigation failed)
-      const finalUrl = page.url();
+      const finalUrl = activePage.url();
       const stillOnHomepage = finalUrl === urlBeforeSearch || 
                               finalUrl === url || 
                               (finalUrl.replace(/\/$/, '') === url.replace(/\/$/, ''));
       
       if (stillOnHomepage) {
         console.log(`  [AI] ⚠ STILL ON HOMEPAGE - Search navigation completely failed`);
+      } else {
+        console.log(`  [AI] ✓ On results page: ${finalUrl}`);
       }
       
       // Screenshot results (or homepage if search failed)
-      await page.evaluate(() => window.scrollTo(0, 0));
+      await activePage.evaluate(() => window.scrollTo(0, 0));
       await new Promise(r => setTimeout(r, 500));
       
       const resultsScreenshotPath = getArtifactPath(jobId, domain, `results_${attempt}`, 'png');
-      await page.screenshot({ 
+      await activePage.screenshot({ 
         path: resultsScreenshotPath, 
         fullPage: true, 
         type: 'png'
