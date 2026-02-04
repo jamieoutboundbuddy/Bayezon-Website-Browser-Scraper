@@ -222,7 +222,7 @@ export async function aiFullAnalysis(
     
     // Step 1: Set viewport for quality screenshots
     console.log(`[AI-FULL] Step 1: Setting up browser...`);
-    await page.setViewportSize({ width: 1920, height: 1080 });
+    await (page as any).setViewportSize(1920, 1080);
     
     // Step 2: Navigate to homepage
     console.log(`[AI-FULL] Step 2: Navigating to ${url}...`);
