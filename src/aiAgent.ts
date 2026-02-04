@@ -390,11 +390,11 @@ Return JSON:
       const data = JSON.parse(jsonMatch[0]);
       return {
         isSignificantFailure: data.significant_failure === true,
-        resultCount: data.result_count,
-        relevantResultCount: data.relevant_result_count || 0,
-        firstRelevantPosition: data.first_relevant_position,
-        productsFound: data.products_shown || [],
-        reasoning: data.reasoning || 'No reasoning provided'
+        resultCount: data.result_count ?? null,
+        relevantResultCount: data.relevant_result_count ?? 0,
+        firstRelevantPosition: data.first_relevant_position ?? null,
+        productsFound: data.products_shown ?? [],
+        reasoning: data.reasoning ?? 'No reasoning provided'
       };
     }
   } catch (e: any) {
@@ -429,11 +429,11 @@ Return JSON:
         const data = JSON.parse(jsonMatch[0]);
         return {
           isSignificantFailure: data.significant_failure === true,
-          resultCount: data.result_count,
-          relevantResultCount: data.relevant_result_count || 0,
-          firstRelevantPosition: data.first_relevant_position,
-          productsFound: data.products_shown || [],
-          reasoning: data.reasoning || 'No reasoning provided'
+          resultCount: data.result_count ?? null,
+          relevantResultCount: data.relevant_result_count ?? 0,
+          firstRelevantPosition: data.first_relevant_position ?? null,
+          productsFound: data.products_shown ?? [],
+          reasoning: data.reasoning ?? 'No reasoning provided'
         };
       }
     } catch {
