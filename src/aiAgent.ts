@@ -164,16 +164,20 @@ async function dismissPopups(stagehand: Stagehand, page: any): Promise<void> {
         if (isEmailPopup) {
           console.log('Found email popup, looking for dismiss button...');
           
-          // Priority 1: Look for "No thanks" specifically
+          // Priority 1: Look for "No thanks" specifically (more flexible matching)
           const allElements = modalEl.querySelectorAll('*');
           for (const el of Array.from(allElements)) {
             const elText = ((el as HTMLElement).innerText || '').toLowerCase().trim();
-            const tagName = el.tagName.toLowerCase();
             
-            // "No thanks" variations
-            if (elText === 'no thanks' || elText === 'no, thanks' || elText === 'no thank you') {
-              (el as HTMLElement).click();
-              return true;
+            // "No thanks" variations - match partial text too
+            if (elText.includes('no thanks') || elText.includes('no, thanks') || 
+                elText.includes('no thank') || elText === 'no' || elText === 'not now' ||
+                elText === 'skip' || elText === 'maybe later' || elText === 'dismiss') {
+              // Make sure this isn't a long text block (should be a short link/button)
+              if (elText.length < 30) {
+                (el as HTMLElement).click();
+                return true;
+              }
             }
           }
           
@@ -260,7 +264,7 @@ async function dismissPopups(stagehand: Stagehand, page: any): Promise<void> {
   // Strategy 4: Stagehand AI as final backup with VERY specific instruction
   try {
     await stagehand.act(
-      "CRITICAL: If there is a popup/modal in the center of the screen (especially one asking for email, offering a discount like '15% OFF', or showing 'UNLOCK'), click the 'No thanks' link at the bottom or the X/close button in the corner. If no popup exists, do nothing."
+      "ONLY if there is a popup/modal visible: Click the 'No thanks' text link (usually gray, at the bottom of the popup) or the X button to CLOSE and DISMISS the popup. DO NOT click any colored buttons like SUBSCRIBE, SIGN UP, MEN, WOMEN, or any button that would submit the form. The goal is to CLOSE the popup, not interact with it."
     );
     console.log('  [AI] ✓ Stagehand popup check complete');
   } catch (e: any) {
