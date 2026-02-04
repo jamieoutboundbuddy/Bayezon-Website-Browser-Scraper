@@ -327,38 +327,41 @@ async function evaluateSearchResults(
 
 QUERY: "${query}"
 
-IMPORTANT: You are looking for INTENT matching, not just keyword matching.
+CRITICAL CHECKS - These are ALWAYS SIGNIFICANT FAILURES:
+1. Page shows a STORE LOCATOR MAP instead of products (e.g., location picker, store finder)
+2. Page shows "No Results" / "0 Results" / empty product grid
+3. Page shows a different section (checkout, account login, homepage redirect)
+4. Results are ONLY BLOG POSTS/GUIDES/ARTICLES (no products at all)
+5. Page redirected to error page or wrong category
+
+INTENT MATCHING:
 - A query asking for "comfortable shoes" is SATISFIED by shoe products described as comfortable
-- A query asking for "hiking boots" is FAILED by generic dress shoes
+- A query asking for "hiking boots" is FAILED by generic dress shoes or location maps
 - A query asking for "wide fit running shoes" is SATISFIED by any running shoe labeled as wide fit
+- A query asking for "moisturiser without fragrance" is SATISFIED by fragrance-free moisturiser products
 
-BE FAIR about relevance:
-- If products genuinely match the query intent, mark as relevant
-- If results are completely off-topic or missing entirely, mark as failure
-- If results exist but are buried deep (position 10+), still mark as RELEVANT but note the position
-
-EVALUATE:
-1. Are there 0 results shown? → SIGNIFICANT FAILURE
-2. Are results BLOG POSTS/GUIDES/ARTICLES instead of products? → SIGNIFICANT FAILURE
-3. Are ALL results products but COMPLETELY WRONG for the query? → SIGNIFICANT FAILURE
-4. Do ANY results genuinely match the query intent? → PASS (even if other results are mediocre)
+PASS CONDITIONS (at least ONE of these):
+- ANY products genuinely match the query intent (even if only 1 in the results)
+- Results exist and are on-topic, even if buried deep (position 10+)
+- Mixed results with at least some relevant products
 
 RELEVANCE EXAMPLES:
-- Query "running shoes for wide feet" → Products labeled as "wide fit" = PASS (even if only 1 in the results)
-- Query "waterproof hiking boots" → Mix of shoes + 1-2 waterproof hiking boots = PASS (note position of first relevant)
-- Query "comfortable everyday shoes" → Mix of various shoes including some labeled comfortable = PASS
-- Query "hiking shoes" → Dress shoes = FAIL
-- Query "beach wedding dress" → Casual sundresses = FAIL (generic when specific style expected)
+✅ Query "running shoes for wide feet" → Products labeled as "wide fit" = PASS
+✅ Query "waterproof hiking boots" → Mix with 1-2 waterproof boots = PASS
+✅ Query "comfortable everyday shoes" → Mix including comfortable labeled shoes = PASS
+❌ Query "hiking shoes" → Only dress shoes = FAIL
+❌ Query "products" → Store locator map = FAIL
+❌ Query "wireless headphones" → 0 results / map = FAIL
 
 Return JSON:
 {
   "significant_failure": true/false,
   "result_count": number or null,
-  "relevant_result_count": number (how many of the results actually match intent),
-  "first_relevant_position": number or null (position of first matching product, 1-indexed),
-  "result_type": "products" | "articles" | "mixed" | "none",
+  "relevant_result_count": number (how many results actually match intent),
+  "first_relevant_position": number or null (1-indexed position of first relevant product),
+  "result_type": "products" | "articles" | "map_locator" | "mixed" | "none" | "error",
   "products_shown": ["product 1", "product 2", ...],
-  "reasoning": "Why products do/don't match the search intent and note about positioning if relevant"
+  "reasoning": "Clear explanation of why this is pass/fail. If failure, note what was shown instead (map, articles, no results, etc)"
 }`;
 
   try {

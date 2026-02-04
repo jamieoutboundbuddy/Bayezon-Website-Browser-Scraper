@@ -5,6 +5,9 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import multer from 'multer';
+import { parse } from 'csv-parse/sync';
+import { v4 as uuidv4 } from 'uuid';
 
 import {
   createJob,
@@ -36,6 +39,29 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static('public'));
 app.use('/artifacts', express.static('artifacts'));
+
+// Multer configuration for CSV uploads
+const upload = multer({ 
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 } // 50MB max
+});
+
+// Password verification middleware for CSV operations
+const verifyCsvPassword = (req: any, res: any, next: any) => {
+  const password = req.headers['x-csv-password'] || req.body.password;
+  const csvPassword = process.env.CSV_UPLOAD_PASSWORD;
+  
+  if (!csvPassword) {
+    console.warn('[CSV] CSV_UPLOAD_PASSWORD not set in environment');
+    return res.status(500).json({ error: 'CSV upload not configured' });
+  }
+  
+  if (!password || password !== csvPassword) {
+    return res.status(401).json({ error: 'Invalid CSV upload password' });
+  }
+  
+  next();
+};
 
 /**
  * Get the base URL from a request for building full screenshot URLs
@@ -249,6 +275,232 @@ app.post('/api/analyze', async (req: Request, res: Response) => {
       jobId,
       hint: 'Check that OPENAI_API_KEY and BROWSERBASE credentials are correct'
     });
+  }
+});
+
+/**
+ * POST /api/batch/upload - Upload CSV file for batch processing
+ * Requires: x-csv-password header or password in body
+ * CSV must have 'domain' column
+ */
+app.post('/api/batch/upload', verifyCsvPassword, upload.single('file'), async (req: any, res: any) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    const batchId = uuidv4();
+    const csvContent = req.file.buffer.toString('utf-8');
+    
+    // Parse CSV
+    let records: any[];
+    try {
+      records = parse(csvContent, {
+        columns: true,
+        skip_empty_lines: true,
+        trim: true
+      });
+    } catch (e: any) {
+      return res.status(400).json({ error: `Invalid CSV format: ${e.message}` });
+    }
+
+    if (!records.length) {
+      return res.status(400).json({ error: 'CSV is empty' });
+    }
+
+    // Validate CSV has 'domain' column
+    if (!records[0].domain) {
+      return res.status(400).json({ 
+        error: 'CSV must have a "domain" column. Headers found: ' + Object.keys(records[0]).join(', ')
+      });
+    }
+
+    const db = getDb();
+    if (!db) {
+      return res.status(500).json({ error: 'Database unavailable' });
+    }
+
+    console.log(`[CSV] Processing batch with ${records.length} domains`);
+
+    // Create batch job
+    const batchJob = await db.batchJob.create({
+      data: {
+        batchId,
+        fileName: req.file.originalname,
+        totalCount: records.length,
+        status: 'pending'
+      }
+    });
+
+    // Create batch job items
+    const batchItems = records.map((record: any) => ({
+      batchId,
+      domain: record.domain.trim().toLowerCase(),
+      status: 'queued' as const
+    }));
+
+    await db.batchJobItem.createMany({
+      data: batchItems
+    });
+
+    console.log(`[CSV] Batch ${batchId} created with ${records.length} items`);
+
+    res.json({
+      success: true,
+      batchId,
+      fileName: req.file.originalname,
+      totalDomains: records.length,
+      status: 'pending',
+      message: 'CSV uploaded successfully. Processing will start shortly.'
+    });
+  } catch (error: any) {
+    console.error('[CSV] Upload error:', error);
+    res.status(500).json({ error: error.message || 'Upload failed' });
+  }
+});
+
+/**
+ * GET /api/batch/:batchId - Get batch job status and progress
+ */
+app.get('/api/batch/:batchId', async (req: any, res: any) => {
+  try {
+    const db = getDb();
+    if (!db) {
+      return res.status(500).json({ error: 'Database unavailable' });
+    }
+
+    const batch = await db.batchJob.findUnique({
+      where: { batchId: req.params.batchId }
+    });
+
+    if (!batch) {
+      return res.status(404).json({ error: 'Batch not found' });
+    }
+
+    const items = await db.batchJobItem.findMany({
+      where: { batchId: req.params.batchId },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    const statusCounts = {
+      queued: items.filter((i: any) => i.status === 'queued').length,
+      running: items.filter((i: any) => i.status === 'running').length,
+      completed: items.filter((i: any) => i.status === 'completed').length,
+      failed: items.filter((i: any) => i.status === 'failed').length
+    };
+
+    res.json({
+      batchId: batch.batchId,
+      fileName: batch.fileName,
+      status: batch.status,
+      totalDomains: batch.totalCount,
+      progress: {
+        completed: batch.completedCount,
+        failed: batch.failedCount,
+        remaining: batch.totalCount - batch.completedCount - batch.failedCount,
+        statusBreakdown: statusCounts
+      },
+      createdAt: batch.createdAt,
+      startedAt: batch.startedAt,
+      completedAt: batch.completedAt,
+      recentItems: items.slice(0, 20).map((item: any) => ({
+        domain: item.domain,
+        status: item.status,
+        error: item.error,
+        createdAt: item.createdAt,
+        updatedAt: item.updatedAt
+      }))
+    });
+  } catch (error: any) {
+    console.error('[CSV] Batch status error:', error);
+    res.status(500).json({ error: error.message || 'Failed to get batch status' });
+  }
+});
+
+/**
+ * GET /api/batch/:batchId/results - Get batch results with pagination
+ */
+app.get('/api/batch/:batchId/results', async (req: any, res: any) => {
+  try {
+    const { limit = 50, offset = 0 } = req.query;
+    const db = getDb();
+    if (!db) {
+      return res.status(500).json({ error: 'Database unavailable' });
+    }
+
+    const batch = await db.batchJob.findUnique({
+      where: { batchId: req.params.batchId }
+    });
+
+    if (!batch) {
+      return res.status(404).json({ error: 'Batch not found' });
+    }
+
+    const items = await db.batchJobItem.findMany({
+      where: { 
+        batchId: req.params.batchId,
+        status: 'completed'
+      },
+      take: parseInt(limit),
+      skip: parseInt(offset),
+      orderBy: { updatedAt: 'desc' }
+    });
+
+    res.json({
+      batchId: batch.batchId,
+      totalCompleted: batch.completedCount,
+      limit: parseInt(limit),
+      offset: parseInt(offset),
+      results: items.map((item: any) => ({
+        domain: item.domain,
+        result: item.result,
+        completedAt: item.updatedAt
+      }))
+    });
+  } catch (error: any) {
+    console.error('[CSV] Results error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/batch/:batchId/failed - Get failed items for retry
+ */
+app.get('/api/batch/:batchId/failed', async (req: any, res: any) => {
+  try {
+    const db = getDb();
+    if (!db) {
+      return res.status(500).json({ error: 'Database unavailable' });
+    }
+
+    const batch = await db.batchJob.findUnique({
+      where: { batchId: req.params.batchId }
+    });
+
+    if (!batch) {
+      return res.status(404).json({ error: 'Batch not found' });
+    }
+
+    const failedItems = await db.batchJobItem.findMany({
+      where: { 
+        batchId: req.params.batchId,
+        status: 'failed'
+      },
+      orderBy: { updatedAt: 'desc' }
+    });
+
+    res.json({
+      batchId: batch.batchId,
+      totalFailed: batch.failedCount,
+      failed: failedItems.map((item: any) => ({
+        domain: item.domain,
+        error: item.error,
+        failedAt: item.updatedAt
+      }))
+    });
+  } catch (error: any) {
+    console.error('[CSV] Failed items error:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 

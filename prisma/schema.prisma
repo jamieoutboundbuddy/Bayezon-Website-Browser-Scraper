@@ -39,5 +39,33 @@ model AnalysisResult {
   @@map("analysis_results")
 }
 
+model BatchJob {
+  id            Int      @id @default(autoincrement())
+  batchId       String   @unique @map("batch_id")
+  fileName      String   @map("file_name")
+  totalCount    Int      @map("total_count")
+  completedCount Int    @default(0) @map("completed_count")
+  failedCount   Int      @default(0) @map("failed_count")
+  status        String   @default("pending") @map("status")
+  startedAt     DateTime @default(now()) @map("started_at")
+  completedAt   DateTime? @map("completed_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@map("batch_jobs")
+}
+
+model BatchJobItem {
+  id         Int      @id @default(autoincrement())
+  batchId    String   @map("batch_id")
+  domain     String
+  status     String   @default("queued")
+  result     Json?
+  error      String?
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@index([batchId])
+  @@map("batch_job_items")
+}
 
 
