@@ -674,12 +674,12 @@ Answer in 2-4 words only. Examples:
           await stagehand.act("Click on the search icon or search bar in the header to open/focus it");
           await new Promise(r => setTimeout(r, 1500));
           
-          // Step 2: Type using keyboard
-          await page.keyboard.type(query, { delay: 50 });
+          // Step 2: Type the query
+          await stagehand.act(`Type "${query}" into the search input that is now focused`);
           await new Promise(r => setTimeout(r, 500));
           
-          // Step 3: Press Enter explicitly
-          await page.keyboard.press('Enter');
+          // Step 3: Submit the search
+          await stagehand.act("Press Enter or click the search submit button to execute the search");
           await new Promise(r => setTimeout(r, 4000));
           
           // Verify navigation
