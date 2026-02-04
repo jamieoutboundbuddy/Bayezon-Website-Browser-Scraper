@@ -37,5 +37,6 @@ RUN mkdir -p artifacts
 # Expose port
 EXPOSE 3000
 
-# Start server with database setup (--accept-data-loss prevents interactive prompts)
-CMD ["sh", "-c", "npx prisma db push --accept-data-loss && node dist/server.js"]
+# Start server with database setup
+# Use a startup script for better logging and error handling
+CMD ["sh", "-c", "echo '[STARTUP] Running prisma db push...' && npx prisma db push --accept-data-loss 2>&1 && echo '[STARTUP] Database setup complete' && node dist/server.js"]
