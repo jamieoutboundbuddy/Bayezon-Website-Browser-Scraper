@@ -187,33 +187,43 @@ async function generateNextQuery(
     : '';
   
   const difficultyGuidance = {
-    1: 'EASY: Simple product + use case (e.g., "shoes for work")',
-    2: 'MEDIUM: Product + occasion (e.g., "dress for beach party")',
-    3: 'HARDER: Lifestyle intent (e.g., "festival outfit")',
-    4: 'HARD: Pop culture reference (e.g., "superhero underwear")',
-    5: 'HARDEST: Abstract concept (e.g., "action figure themed boxers")',
+    1: 'EASY: Product + simple use case',
+    2: 'MEDIUM: Product + specific situation/condition',
+    3: 'HARDER: Abstract need or lifestyle intent',
+    4: 'HARD: Unusual constraint or edge case',
+    5: 'HARDEST: Very specific multi-constraint need',
   }[attempt] || 'Generate a challenging query';
   
   const prompt = `Generate query #${attempt} to test ${domain}'s search.
 
-BRAND: ${brandSummary}
-DIFFICULTY LEVEL: ${attempt}/5 - ${difficultyGuidance}
+BRAND SELLS: ${brandSummary}
+DIFFICULTY: ${attempt}/5 - ${difficultyGuidance}
 ${previousContext}
 
+CRITICAL: Generate queries RELEVANT to what this brand actually sells!
+- If they sell casual sneakers, don't search for "formal shoes" or "dress shoes"
+- If they sell underwear, don't search for "shoes" or "jackets"
+- The query should be something a REAL customer of THIS brand would search
+
+${attempt === 1 ? `
+For attempt 1, test a simple natural language search that matches their products:
+- Allbirds (casual shoes) → "running shoes for travel"
+- PSD (underwear) → "boxers for working out"
+- Fashion brand → "dress for beach wedding"
+` : ''}
+
 ${attempt > 1 ? `
-Previous queries passed. Generate HARDER query that might expose weakness:
-- Pop culture references
-- Abstract lifestyle concepts
-- Specific occasion/event needs
+Previous queries passed. Try HARDER natural language that keyword search might miss:
+- Weather/condition: "shoes for rainy days", "jacket for cold mornings"
+- Feeling/outcome: "underwear that doesn't ride up", "shoes for standing all day"
+- Lifestyle: "outfit for first date", "gift for runner"
 ` : ''}
 
 RULES:
 - MAX 5 words
-- Sound like a REAL shopper, not a copywriter
-- NO filler words: "comfortable", "trendy", "stylish", "quality", "perfect", "soft", "cozy", "casual"
-- DIRECT product + purpose/occasion
-- Examples of GOOD: "shoes for hiking", "dress for wedding", "swimwear for surfing"
-- Examples of BAD: "comfortable shoes for walking", "trendy beachwear for festival"
+- Must be RELEVANT to ${brandSummary}
+- NO filler words: comfortable, trendy, stylish, quality, perfect, best
+- Test NATURAL LANGUAGE understanding, not random products they don't sell
 
 Return ONLY JSON:
 {"query": "your search query here"}`;
@@ -236,14 +246,22 @@ Return ONLY JSON:
     console.error(`  [AI] Query generation failed: ${e.message}`);
   }
   
-  // Fallback queries by difficulty - no filler words
-  const fallbacks = [
-    'shoes for work',
-    'outfit for beach',
-    'gift for dad',
-    'superhero underwear',
-    'retro video game shirt'
-  ];
+  // Fallback queries based on brand category
+  const brandLower = brandSummary.toLowerCase();
+  let fallbacks: string[];
+  
+  if (brandLower.includes('shoe') || brandLower.includes('footwear') || brandLower.includes('sneaker')) {
+    fallbacks = ['shoes for travel', 'sneakers for rainy days', 'shoes for standing all day', 'running shoes that breathe', 'slip-on for errands'];
+  } else if (brandLower.includes('underwear') || brandLower.includes('boxer') || brandLower.includes('brief')) {
+    fallbacks = ['boxers for gym', 'underwear for hot weather', 'briefs that stay put', 'themed boxer briefs', 'superhero underwear'];
+  } else if (brandLower.includes('cloth') || brandLower.includes('apparel') || brandLower.includes('fashion')) {
+    fallbacks = ['outfit for interview', 'dress for beach', 'jacket for travel', 'casual friday look', 'date night outfit'];
+  } else if (brandLower.includes('swim') || brandLower.includes('beach')) {
+    fallbacks = ['swimsuit for surfing', 'beach cover up', 'swimwear for laps', 'bikini for vacation', 'board shorts for water park'];
+  } else {
+    fallbacks = ['gift for friend', 'something for travel', 'item for everyday use', 'product for summer', 'option for gifting'];
+  }
+  
   return fallbacks[attempt - 1] || fallbacks[0];
 }
 
