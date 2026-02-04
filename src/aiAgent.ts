@@ -693,33 +693,70 @@ Answer in 2-4 words only. Examples:
               }
             }, { sel: selector, q: query });
             
-            await new Promise(r => setTimeout(r, 800)); // Wait for autocomplete dropdown
+            await new Promise(r => setTimeout(r, 1000)); // Wait for autocomplete to appear
             
-            // Step 2: Use Stagehand to press REAL Enter key (triggers actual submission)
-            console.log(`  [AI] Pressing Enter via Stagehand...`);
-            try {
-              await stagehand.act("Press the Enter key on the keyboard to submit the search");
-            } catch (e) {
-              // Fallback: try JavaScript form submit
-              console.log(`  [AI] Stagehand Enter failed, trying form submit...`);
-              await page.evaluate((sel: string) => {
-                const el = document.querySelector(sel) as HTMLInputElement;
-                if (el) {
-                  const form = el.closest('form');
-                  if (form) form.submit();
+            // Step 2: SUBMIT THE FORM (not just Enter - avoids autocomplete interception)
+            console.log(`  [AI] Submitting search form...`);
+            
+            // Try multiple submission methods
+            const submitted = await page.evaluate((sel: string) => {
+              const el = document.querySelector(sel) as HTMLInputElement;
+              if (!el) return false;
+              
+              // Method 1: Find and click a search submit button
+              const form = el.closest('form');
+              if (form) {
+                const submitBtn = form.querySelector('button[type="submit"], input[type="submit"], button:not([type]), [class*="submit"], [class*="search-btn"]');
+                if (submitBtn && (submitBtn as HTMLElement).offsetParent !== null) {
+                  (submitBtn as HTMLElement).click();
+                  return 'button';
                 }
-              }, selector);
+                // Method 2: Submit the form directly
+                form.submit();
+                return 'form';
+              }
+              
+              // Method 3: Look for a nearby search button
+              const parent = el.parentElement?.parentElement || el.parentElement;
+              if (parent) {
+                const btn = parent.querySelector('button, [role="button"]');
+                if (btn && (btn as HTMLElement).offsetParent !== null) {
+                  (btn as HTMLElement).click();
+                  return 'nearby-button';
+                }
+              }
+              
+              return false;
+            }, selector);
+            
+            if (submitted) {
+              console.log(`  [AI] ✓ Submitted via: ${submitted}`);
+            } else {
+              // Fallback: Use Stagehand to click the search button
+              console.log(`  [AI] JS submit failed, trying Stagehand to click search button...`);
+              try {
+                await stagehand.act("Click the search submit button or magnifying glass icon to execute the search");
+              } catch (e) {
+                // Last resort: Press Enter via Stagehand
+                console.log(`  [AI] Trying Stagehand Enter as last resort...`);
+                await stagehand.act("Press Enter to submit the search");
+              }
             }
             
             await new Promise(r => setTimeout(r, 4000)); // Wait for results page
             
-            // Step 3: Verify we have ACTUAL results (not just URL change)
+            // Step 3: Verify we navigated to results page
             const currentUrl = page.url();
             const hasActualResults = await page.evaluate(() => {
               const text = document.body.innerText.toLowerCase();
-              const hasResultText = text.includes('result') || text.includes('product') || text.includes('found');
-              const hasProductElements = document.querySelectorAll('[class*="product"], [data-product], .grid img, .product-card').length > 0;
-              return hasResultText || hasProductElements;
+              // Check for search results indicators
+              const hasResultsPageIndicators = 
+                text.includes('results for') || 
+                text.includes('search results') ||
+                text.includes(' found') ||
+                text.includes('showing ');
+              const hasProductGrid = document.querySelectorAll('[class*="product"], [data-product], .product-card, .product-grid').length > 2;
+              return hasResultsPageIndicators || hasProductGrid;
             });
             
             if (hasActualResults) {
@@ -773,18 +810,31 @@ Answer in 2-4 words only. Examples:
             }, query);
             
             if (mainSearchFound) {
-              console.log(`  [AI] ✓ Found main search input, submitting...`);
+              console.log(`  [AI] ✓ Found main search input, submitting form...`);
               await new Promise(r => setTimeout(r, 500));
               
-              // Use Stagehand to press Enter
-              await stagehand.act("Press the Enter key to submit the search");
+              // Submit the form directly (not Enter - avoids autocomplete)
+              await page.evaluate(() => {
+                const inputs = Array.from(document.querySelectorAll('input[type="search"], input[type="text"]'));
+                for (const inp of inputs) {
+                  const el = inp as HTMLInputElement;
+                  if (el.value && el.offsetParent !== null) {
+                    const form = el.closest('form');
+                    if (form) {
+                      form.submit();
+                      return;
+                    }
+                  }
+                }
+              });
+              
               await new Promise(r => setTimeout(r, 4000));
               
               // Verify results now showing
               const hasResults = await page.evaluate(() => {
                 const text = document.body.innerText.toLowerCase();
-                return text.includes('result') || 
-                       document.querySelectorAll('[class*="product"], .product-card, .grid img').length > 0;
+                return text.includes('results for') || text.includes('search results') ||
+                       document.querySelectorAll('[class*="product"], .product-card').length > 2;
               });
               
               if (hasResults) {
@@ -804,23 +854,23 @@ Answer in 2-4 words only. Examples:
       if (!searchSucceeded) {
         console.log(`  [AI] Strategy 2: Trying Stagehand AI...`);
         try {
-          // First try to click search icon to open modal
-          await stagehand.act("Click the search icon (magnifying glass) in the header");
+          // First try to click search icon to open search
+          await stagehand.act("Click the search icon (magnifying glass) in the header to open search");
           await new Promise(r => setTimeout(r, 2000));
           
-          // Now find and fill the search input
+          // Type the search query
           await stagehand.act(`Type into the search input field: ${query}`);
-          await new Promise(r => setTimeout(r, 1000));
+          await new Promise(r => setTimeout(r, 1500)); // Wait for autocomplete
           
-          // Submit with real Enter key
-          await stagehand.act("Press the Enter key to submit the search");
+          // CLICK the search button (not Enter - avoids autocomplete interception)
+          await stagehand.act("Click the search submit button, search icon, or magnifying glass button to execute the search. Do NOT select from autocomplete dropdown.");
           await new Promise(r => setTimeout(r, 4000));
           
-          // Verify actual results (not just URL)
+          // Verify we got actual search results page
           const hasActualResults = await page.evaluate(() => {
             const text = document.body.innerText.toLowerCase();
-            return text.includes('result') || 
-                   document.querySelectorAll('[class*="product"], .product-card').length > 0;
+            return text.includes('results for') || text.includes('search results') ||
+                   document.querySelectorAll('[class*="product"], .product-card').length > 2;
           });
           
           if (hasActualResults) {
