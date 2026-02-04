@@ -679,7 +679,7 @@ Answer in 2-4 words only. Examples:
           if (found) {
             console.log(`  [AI] ✓ Found search with selector: ${selector}`);
             
-            // Click, clear, type, and submit all via evaluate
+            // Step 1: Click and fill the input via JavaScript (fast, reliable)
             await page.evaluate((data: { sel: string, q: string }) => {
               const el = document.querySelector(data.sel) as HTMLInputElement;
               if (el) {
@@ -693,28 +693,42 @@ Answer in 2-4 words only. Examples:
               }
             }, { sel: selector, q: query });
             
-            await new Promise(r => setTimeout(r, 500));
+            await new Promise(r => setTimeout(r, 800)); // Wait for autocomplete dropdown
             
-            // Press Enter via evaluate
-            await page.evaluate((sel: string) => {
-              const el = document.querySelector(sel) as HTMLInputElement;
-              if (el) {
-                el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
-                el.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
-                // Also try form submit
-                const form = el.closest('form');
-                if (form) form.submit();
-              }
-            }, selector);
+            // Step 2: Use Stagehand to press REAL Enter key (triggers actual submission)
+            console.log(`  [AI] Pressing Enter via Stagehand...`);
+            try {
+              await stagehand.act("Press the Enter key on the keyboard to submit the search");
+            } catch (e) {
+              // Fallback: try JavaScript form submit
+              console.log(`  [AI] Stagehand Enter failed, trying form submit...`);
+              await page.evaluate((sel: string) => {
+                const el = document.querySelector(sel) as HTMLInputElement;
+                if (el) {
+                  const form = el.closest('form');
+                  if (form) form.submit();
+                }
+              }, selector);
+            }
             
-            await new Promise(r => setTimeout(r, 4000)); // Wait for results
+            await new Promise(r => setTimeout(r, 4000)); // Wait for results page
             
-            // Verify navigation
+            // Step 3: Verify we have ACTUAL results (not just URL change)
             const currentUrl = page.url();
-            if (currentUrl.includes('search') || currentUrl.includes('q=') || currentUrl.includes('query')) {
-              console.log(`  [AI] ✓ Direct selector search succeeded! URL: ${currentUrl.substring(0, 60)}`);
+            const hasActualResults = await page.evaluate(() => {
+              const text = document.body.innerText.toLowerCase();
+              const hasResultText = text.includes('result') || text.includes('product') || text.includes('found');
+              const hasProductElements = document.querySelectorAll('[class*="product"], [data-product], .grid img, .product-card').length > 0;
+              return hasResultText || hasProductElements;
+            });
+            
+            if (hasActualResults) {
+              console.log(`  [AI] ✓ Search succeeded with actual results! URL: ${currentUrl.substring(0, 60)}`);
               searchSucceeded = true;
               break;
+            } else if (currentUrl.includes('search') || currentUrl.includes('q=')) {
+              console.log(`  [AI] ⚠ URL changed but no results visible yet...`);
+              // Continue to re-submit logic below
             }
           }
         } catch (e) {
@@ -723,10 +737,72 @@ Answer in 2-4 words only. Examples:
       }
       
       // ============================================================
+      // STRATEGY 1.5: Re-submit if on search page but no results
+      // (Handles sites like PSD.com where URL navigation doesn't auto-execute)
+      // ============================================================
+      if (!searchSucceeded) {
+        const currentUrl = page.url();
+        if (currentUrl.includes('search') || currentUrl.includes('q=')) {
+          console.log(`  [AI] Strategy 1.5: On search page but no results, re-typing query...`);
+          
+          // Dismiss any popups that appeared
+          await dismissPopups(stagehand, page);
+          await new Promise(r => setTimeout(r, 1000));
+          
+          // Find the main search input on this page and type again
+          try {
+            // Look for a prominent search input on the search results page
+            const mainSearchFound = await page.evaluate((q: string) => {
+              // Look for large/main search inputs (not the small header one)
+              const inputs = Array.from(document.querySelectorAll('input[type="search"], input[type="text"], input[placeholder*="Search" i]'));
+              // Prefer inputs that are larger (likely the main search box)
+              for (const inp of inputs) {
+                const el = inp as HTMLInputElement;
+                const rect = el.getBoundingClientRect();
+                // Check if visible and reasonably sized (main search boxes are usually wider)
+                if (el.offsetParent !== null && rect.width > 200) {
+                  el.click();
+                  el.focus();
+                  el.value = '';
+                  el.value = q;
+                  el.dispatchEvent(new Event('input', { bubbles: true }));
+                  return true;
+                }
+              }
+              return false;
+            }, query);
+            
+            if (mainSearchFound) {
+              console.log(`  [AI] ✓ Found main search input, submitting...`);
+              await new Promise(r => setTimeout(r, 500));
+              
+              // Use Stagehand to press Enter
+              await stagehand.act("Press the Enter key to submit the search");
+              await new Promise(r => setTimeout(r, 4000));
+              
+              // Verify results now showing
+              const hasResults = await page.evaluate(() => {
+                const text = document.body.innerText.toLowerCase();
+                return text.includes('result') || 
+                       document.querySelectorAll('[class*="product"], .product-card, .grid img').length > 0;
+              });
+              
+              if (hasResults) {
+                console.log(`  [AI] ✓ Re-submit succeeded with results!`);
+                searchSucceeded = true;
+              }
+            }
+          } catch (e) {
+            console.log(`  [AI] Re-submit failed, continuing to Strategy 2...`);
+          }
+        }
+      }
+      
+      // ============================================================
       // STRATEGY 2: Stagehand AI (only if direct selectors failed)
       // ============================================================
       if (!searchSucceeded) {
-        console.log(`  [AI] Strategy 2: Direct selectors failed, trying Stagehand AI...`);
+        console.log(`  [AI] Strategy 2: Trying Stagehand AI...`);
         try {
           // First try to click search icon to open modal
           await stagehand.act("Click the search icon (magnifying glass) in the header");
@@ -736,14 +812,22 @@ Answer in 2-4 words only. Examples:
           await stagehand.act(`Type into the search input field: ${query}`);
           await new Promise(r => setTimeout(r, 1000));
           
-          // Submit
-          await stagehand.act("Press Enter or click the search button");
+          // Submit with real Enter key
+          await stagehand.act("Press the Enter key to submit the search");
           await new Promise(r => setTimeout(r, 4000));
           
-          const currentUrl = page.url();
-          if (currentUrl.includes('search') || currentUrl.includes('q=')) {
-            console.log(`  [AI] ✓ Stagehand search succeeded`);
+          // Verify actual results (not just URL)
+          const hasActualResults = await page.evaluate(() => {
+            const text = document.body.innerText.toLowerCase();
+            return text.includes('result') || 
+                   document.querySelectorAll('[class*="product"], .product-card').length > 0;
+          });
+          
+          if (hasActualResults) {
+            console.log(`  [AI] ✓ Stagehand search succeeded with results`);
             searchSucceeded = true;
+          } else {
+            console.log(`  [AI] Stagehand navigated but no results visible`);
           }
         } catch (stagehandError: any) {
           console.log(`  [AI] Stagehand search failed: ${stagehandError.message?.substring(0, 80)}`);
