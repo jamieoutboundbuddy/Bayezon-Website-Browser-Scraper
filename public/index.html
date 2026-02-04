@@ -8,72 +8,57 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     :root {
-      --accent-cyan: #22d3ee;
-      --accent-violet: #a78bfa;
-      --accent-pink: #f472b6;
-      --bg-dark: #0f0f1a;
-      --bg-card: #1a1a2e;
-      --bg-card-hover: #242442;
-      --text-primary: #f8fafc;
-      --text-secondary: #94a3b8;
-      --border-subtle: rgba(148, 163, 184, 0.1);
+      --bg-cream: #FDF6E3;
+      --bg-white: #FFFFFF;
+      --accent-green: #22C55E;
+      --accent-green-dark: #16A34A;
+      --text-dark: #1A1A1A;
+      --text-muted: #6B7280;
+      --border-light: rgba(0,0,0,0.08);
     }
     body { 
-      font-family: 'Outfit', system-ui, -apple-system, sans-serif;
-      background: var(--bg-dark);
-      color: var(--text-primary);
-    }
-    .font-mono { font-family: 'JetBrains Mono', monospace; }
-    
-    /* Gradient backgrounds */
-    .gradient-border {
-      background: linear-gradient(135deg, var(--accent-cyan), var(--accent-violet), var(--accent-pink));
-      padding: 1px;
-      border-radius: 1rem;
-    }
-    .gradient-border-inner {
-      background: var(--bg-card);
-      border-radius: calc(1rem - 1px);
-    }
-    
-    /* Verdict styles */
-    .verdict-outreach { 
-      background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%);
-      box-shadow: 0 0 40px rgba(220, 38, 38, 0.3);
-    }
-    .verdict-maybe { 
-      background: linear-gradient(135deg, #f59e0b 0%, #b45309 100%);
-      box-shadow: 0 0 40px rgba(245, 158, 11, 0.3);
-    }
-    .verdict-skip { 
-      background: linear-gradient(135deg, #10b981 0%, #047857 100%);
-      box-shadow: 0 0 40px rgba(16, 185, 129, 0.3);
-    }
-    .verdict-inconclusive {
-      background: linear-gradient(135deg, #6366f1 0%, #4338ca 100%);
-      box-shadow: 0 0 40px rgba(99, 102, 241, 0.3);
+      font-family: 'DM Sans', system-ui, -apple-system, sans-serif;
+      background: var(--bg-cream);
+      color: var(--text-dark);
     }
     
     /* Cards */
     .card {
-      background: var(--bg-card);
-      border: 1px solid var(--border-subtle);
-      border-radius: 1rem;
-      transition: all 0.2s ease;
+      background: var(--bg-white);
+      border-radius: 16px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+      border: 1px solid var(--border-light);
     }
-    .card:hover {
-      background: var(--bg-card-hover);
-      border-color: rgba(148, 163, 184, 0.2);
+    
+    /* Verdict styles */
+    .verdict-outreach { 
+      background: #FEF2F2;
+      border: 2px solid #EF4444;
     }
+    .verdict-outreach .verdict-icon { color: #EF4444; }
+    
+    .verdict-skip { 
+      background: #F0FDF4;
+      border: 2px solid #22C55E;
+    }
+    .verdict-skip .verdict-icon { color: #22C55E; }
+    
+    .verdict-review {
+      background: #FFFBEB;
+      border: 2px solid #F59E0B;
+    }
+    .verdict-review .verdict-icon { color: #F59E0B; }
     
     /* Screenshot container */
     .screenshot-container { 
       aspect-ratio: 16/10; 
       overflow: hidden;
-      background: var(--bg-dark);
+      background: #F9FAFB;
+      border-radius: 12px;
+      border: 1px solid var(--border-light);
     }
     .screenshot-container img { 
       width: 100%; 
@@ -86,359 +71,233 @@
       transform: scale(1.02);
     }
     
-    /* Animations */
-    .pulse { animation: pulse 2s infinite; }
-    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
-    
-    .collapsible-content { 
-      max-height: 0; 
-      overflow: hidden; 
-      transition: max-height 0.3s ease-out; 
-    }
-    .collapsible-content.open { 
-      max-height: 2000px; 
-    }
-    
-    /* Smart Mode toggle */
-    .smart-toggle {
-      background: linear-gradient(135deg, var(--accent-cyan), var(--accent-violet));
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
-    }
-    .smart-toggle-switch {
-      position: relative;
-      width: 52px;
-      height: 28px;
-      background: #334155;
-      border-radius: 9999px;
-      transition: background 0.3s ease;
-      cursor: pointer;
-    }
-    .smart-toggle-switch.active {
-      background: linear-gradient(135deg, var(--accent-cyan), var(--accent-violet));
-    }
-    .smart-toggle-switch::after {
-      content: '';
-      position: absolute;
-      top: 2px;
-      left: 2px;
-      width: 24px;
-      height: 24px;
-      background: white;
-      border-radius: 50%;
-      transition: transform 0.3s ease;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-    }
-    .smart-toggle-switch.active::after {
-      transform: translateX(24px);
-    }
-    
-    /* Confidence badges */
-    .confidence-high { 
-      background: linear-gradient(135deg, #10b981, #059669);
-      color: white;
-    }
-    .confidence-medium { 
-      background: linear-gradient(135deg, #f59e0b, #d97706);
-      color: white;
-    }
-    .confidence-low { 
-      background: linear-gradient(135deg, #6366f1, #4f46e5);
-      color: white;
-    }
-    
-    /* Comparison grid */
-    .comparison-card {
-      background: var(--bg-card);
-      border: 1px solid var(--border-subtle);
-      border-radius: 1rem;
-      overflow: hidden;
-    }
-    .comparison-header-nl {
-      background: linear-gradient(135deg, var(--accent-cyan), #0ea5e9);
-    }
-    .comparison-header-kw {
-      background: linear-gradient(135deg, var(--accent-violet), #7c3aed);
-    }
-    
-    /* Missed products tag */
-    .missed-product-tag {
-      background: rgba(239, 68, 68, 0.1);
-      border: 1px solid rgba(239, 68, 68, 0.3);
-      color: #fca5a5;
-    }
-    
-    /* Glow effects */
-    .glow-cyan { box-shadow: 0 0 20px rgba(34, 211, 238, 0.2); }
-    .glow-violet { box-shadow: 0 0 20px rgba(167, 139, 250, 0.2); }
-    
-    /* Input styles */
-    .input-dark {
-      background: var(--bg-dark);
-      border: 1px solid var(--border-subtle);
-      color: var(--text-primary);
-    }
-    .input-dark:focus {
-      outline: none;
-      border-color: var(--accent-cyan);
-      box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.1);
-    }
-    .input-dark::placeholder {
-      color: var(--text-secondary);
-    }
-    
-    /* Button primary */
+    /* Buttons */
     .btn-primary {
-      background: linear-gradient(135deg, var(--accent-cyan), var(--accent-violet));
-      color: var(--bg-dark);
+      background: var(--text-dark);
+      color: white;
       font-weight: 600;
+      border-radius: 12px;
       transition: all 0.2s ease;
     }
     .btn-primary:hover {
+      background: #333;
       transform: translateY(-1px);
-      box-shadow: 0 4px 20px rgba(34, 211, 238, 0.3);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
     }
     .btn-primary:disabled {
       opacity: 0.5;
       cursor: not-allowed;
       transform: none;
     }
+    
+    /* Input styles */
+    .input-light {
+      background: var(--bg-white);
+      border: 2px solid var(--border-light);
+      color: var(--text-dark);
+      border-radius: 12px;
+    }
+    .input-light:focus {
+      outline: none;
+      border-color: var(--accent-green);
+      box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.1);
+    }
+    .input-light::placeholder {
+      color: var(--text-muted);
+    }
+    
+    /* Status badges */
+    .badge-success {
+      background: #DCFCE7;
+      color: #15803D;
+    }
+    .badge-error {
+      background: #FEE2E2;
+      color: #DC2626;
+    }
+    .badge-warning {
+      background: #FEF3C7;
+      color: #B45309;
+    }
+    
+    /* Animations */
+    .pulse { animation: pulse 2s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    
+    /* Collapsible */
+    .collapsible-content { 
+      max-height: 0; 
+      overflow: hidden; 
+      transition: max-height 0.3s ease-out; 
+    }
+    .collapsible-content.open { 
+      max-height: 5000px; 
+    }
+    
+    /* Query card states */
+    .query-passed {
+      background: #F0FDF4;
+      border: 1px solid #BBF7D0;
+    }
+    .query-failed {
+      background: #FEF2F2;
+      border: 1px solid #FECACA;
+    }
   </style>
 </head>
 <body class="min-h-screen">
   <!-- Header -->
-  <header class="py-8 px-4 border-b border-slate-800">
-    <div class="max-w-5xl mx-auto">
-      <div class="flex items-center gap-3 mb-2">
-        <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-400 to-violet-500 flex items-center justify-center">
-          <i class="fas fa-search text-slate-900 text-lg"></i>
+  <header class="py-6 px-4 border-b border-black/5 bg-white">
+    <div class="max-w-4xl mx-auto">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-black flex items-center justify-center">
+          <i class="fas fa-search text-white text-lg"></i>
         </div>
-        <h1 class="text-2xl font-bold">Search Quality Analyzer</h1>
+        <div>
+          <h1 class="text-xl font-bold text-gray-900">Search Quality Analyzer</h1>
+          <p class="text-sm text-gray-500">Test if a website's search can handle real shopper queries</p>
+        </div>
       </div>
-      <p class="text-slate-400 text-sm ml-13">Find websites with broken search to pitch your solution</p>
     </div>
   </header>
 
-  <main class="max-w-5xl mx-auto px-4 py-8">
+  <main class="max-w-4xl mx-auto px-4 py-8">
     <!-- Input Form -->
     <div class="card p-6 mb-8">
-      <div class="flex items-center gap-3 mb-6 pb-4 border-b border-slate-700">
-        <div class="px-3 py-1 rounded-full text-xs font-semibold bg-gradient-to-r from-cyan-500/20 to-violet-500/20 text-cyan-400 border border-cyan-500/30">
-          <i class="fas fa-robot mr-1"></i> AI-POWERED
-        </div>
-        <div>
-          <span class="font-semibold smart-toggle text-lg">Adversarial Search Tester</span>
-          <p class="text-xs text-slate-400 mt-0.5">AI tests progressively harder queries until it finds a weakness</p>
-        </div>
+      <div class="flex items-center gap-2 mb-6">
+        <span class="px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700">
+          <i class="fas fa-robot mr-1"></i> AI-Powered
+        </span>
+        <span class="text-sm text-gray-500">Tests up to 5 queries until it finds a weakness</span>
       </div>
       
       <div class="mb-4">
-        <label class="block text-sm font-medium text-slate-300 mb-2">Website to Test</label>
+        <label class="block text-sm font-medium text-gray-700 mb-2">Website to Test</label>
         <input 
           type="text" 
           id="domain-input"
-          placeholder="psd.com"
-          class="w-full px-4 py-3 rounded-lg input-dark text-lg"
+          placeholder="allbirds.com"
+          class="w-full px-4 py-3 input-light text-lg"
         >
       </div>
       
       <button 
         id="search-btn"
         onclick="startAnalysis()"
-        class="w-full py-4 px-6 rounded-lg font-semibold btn-primary flex items-center justify-center gap-2 text-lg"
+        class="w-full py-4 px-6 btn-primary flex items-center justify-center gap-2 text-lg"
       >
-        <i class="fas fa-robot"></i>
+        <i class="fas fa-play"></i>
         Run Analysis
       </button>
-      
-      <p class="text-xs text-slate-500 mt-4">
-        <i class="fas fa-flask text-cyan-400 mr-1"></i>
-        <strong>How it works:</strong> AI uses Stagehand to search the website just like a human would, testing up to 5 queries of increasing difficulty until it finds a search failure - proving the site needs better search.
-      </p>
     </div>
 
     <!-- Loading State -->
     <div id="loading-state" class="hidden">
       <div class="card p-8 text-center">
-        <div class="inline-flex items-center justify-center w-16 h-16 bg-slate-800 rounded-full mb-4">
-          <i class="fas fa-spinner fa-spin text-2xl text-cyan-400"></i>
+        <div class="inline-flex items-center justify-center w-16 h-16 bg-green-100 rounded-full mb-4">
+          <i class="fas fa-spinner fa-spin text-2xl text-green-600"></i>
         </div>
-        <p id="loading-message" class="text-slate-300 font-medium">Taking screenshots...</p>
-        <div class="w-full bg-slate-800 rounded-full h-2 mt-4 max-w-xs mx-auto overflow-hidden">
-          <div id="progress-bar" class="bg-gradient-to-r from-cyan-400 to-violet-500 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+        <p id="loading-message" class="text-gray-700 font-medium">Analyzing website...</p>
+        <div class="w-full bg-gray-200 rounded-full h-2 mt-4 max-w-xs mx-auto overflow-hidden">
+          <div id="progress-bar" class="bg-green-500 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
         </div>
       </div>
     </div>
 
-    <!-- Smart Mode Results Section -->
+    <!-- Results Section -->
     <div id="smart-results-section" class="hidden space-y-6">
       
-      <!-- Verdict Hero Card -->
-      <div id="smart-verdict-card" class="rounded-xl text-white p-8">
-        <div class="flex items-start justify-between">
-          <div>
-            <div class="flex items-center gap-3 mb-3">
-              <span id="smart-verdict-badge" class="text-xs font-bold uppercase tracking-wider bg-white/20 px-3 py-1 rounded-full"></span>
-              <span id="smart-confidence-badge" class="text-xs font-bold uppercase tracking-wider px-3 py-1 rounded-full"></span>
+      <!-- Verdict Card -->
+      <div id="smart-verdict-card" class="card p-6">
+        <div class="flex items-start gap-4">
+          <div id="verdict-icon-container" class="w-12 h-12 rounded-full flex items-center justify-center verdict-icon">
+            <i id="verdict-icon" class="fas fa-times text-2xl"></i>
+          </div>
+          <div class="flex-1">
+            <div class="flex items-center gap-2 mb-1">
+              <span id="smart-verdict-badge" class="text-xs font-bold uppercase tracking-wider px-2 py-1 rounded"></span>
+              <span id="smart-duration" class="text-xs text-gray-400"></span>
             </div>
-            <h2 id="smart-verdict-title" class="text-3xl font-bold mb-2"></h2>
-            <p id="smart-verdict-reason" class="text-white/90 text-lg"></p>
-          </div>
-          <div class="text-right">
-            <div id="smart-duration" class="text-sm text-white/60 font-mono"></div>
+            <h2 id="smart-verdict-title" class="text-2xl font-bold text-gray-900 mb-1"></h2>
+            <p id="smart-verdict-reason" class="text-gray-600"></p>
           </div>
         </div>
       </div>
 
-      <!-- Site Profile Card -->
+      <!-- Screenshots Grid -->
       <div class="card p-6">
-        <h3 class="font-semibold text-slate-200 mb-4 flex items-center gap-2">
-          <i class="fas fa-building text-cyan-400"></i>
-          Site Profile
+        <h3 class="font-semibold text-gray-900 mb-4 flex items-center gap-2">
+          <i class="fas fa-images text-gray-400"></i>
+          Screenshots
         </h3>
-        <div class="grid md:grid-cols-2 lg:grid-cols-4 gap-4" id="site-profile-grid">
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4" id="smart-screenshots-grid">
           <!-- Filled by JS -->
         </div>
       </div>
 
-      <!-- Adversarial Test Results -->
+      <!-- Narrative Summary -->
       <div class="card p-6">
-        <div id="comparison-container">
-          <!-- Filled by JS with adversarial query progression -->
-        </div>
-      </div>
-
-      <!-- Missed Products Alert -->
-      <div id="missed-products-card" class="hidden card border-red-500/30 bg-red-500/5 p-6">
-        <h3 class="font-semibold text-red-400 mb-3 flex items-center gap-2">
-          <i class="fas fa-exclamation-triangle"></i>
-          Products Missed by Natural Language Search
+        <h3 class="font-semibold text-gray-900 mb-4 flex items-center gap-2">
+          <i class="fas fa-align-left text-gray-400"></i>
+          Analysis Summary
         </h3>
-        <p class="text-slate-400 text-sm mb-4">These products appeared in keyword results but NOT in natural language results:</p>
-        <div id="missed-products-list" class="flex flex-wrap gap-2">
+        <div id="narrative-summary" class="prose prose-gray max-w-none">
           <!-- Filled by JS -->
         </div>
       </div>
 
-      <!-- Email Hook Card -->
-      <div id="smart-insight-card" class="card p-6">
-        <h3 class="font-semibold text-slate-200 mb-3 flex items-center gap-2">
-          <i class="fas fa-bullseye text-pink-400"></i>
-          Your Email Hook
+      <!-- Query Tests -->
+      <div class="card p-6">
+        <h3 class="font-semibold text-gray-900 mb-4 flex items-center gap-2">
+          <i class="fas fa-flask text-gray-400"></i>
+          Queries Tested
         </h3>
-        <blockquote id="smart-email-hook" class="text-lg text-slate-300 border-l-4 border-pink-400 pl-4 italic"></blockquote>
-        <button onclick="copySmartEmailHook()" class="mt-3 text-sm text-slate-500 hover:text-slate-300 transition">
-          <i class="fas fa-copy mr-1"></i> Copy to clipboard
-        </button>
+        <div id="queries-tested" class="space-y-3">
+          <!-- Filled by JS -->
+        </div>
       </div>
 
-      <!-- All Screenshots -->
+      <!-- Queries That Would Work -->
+      <div id="working-queries-section" class="card p-6 hidden">
+        <h3 class="font-semibold text-gray-900 mb-4 flex items-center gap-2">
+          <i class="fas fa-lightbulb text-yellow-500"></i>
+          Queries That Would Likely Work
+        </h3>
+        <div id="working-queries" class="flex flex-wrap gap-2">
+          <!-- Filled by JS -->
+        </div>
+      </div>
+
+      <!-- Site Profile (Collapsed) -->
       <div class="card overflow-hidden">
-        <button onclick="toggleSection('smart-screenshots')" class="w-full p-4 flex items-center justify-between hover:bg-slate-800/50 transition">
-          <h3 class="font-semibold text-slate-200 flex items-center gap-2">
-            <i class="fas fa-images text-violet-400"></i>
-            All Screenshots
+        <button onclick="toggleSection('site-profile')" class="w-full p-4 flex items-center justify-between hover:bg-gray-50 transition">
+          <h3 class="font-semibold text-gray-900 flex items-center gap-2">
+            <i class="fas fa-building text-gray-400"></i>
+            Site Profile
           </h3>
-          <i id="smart-screenshots-chevron" class="fas fa-chevron-down text-slate-500"></i>
+          <i id="site-profile-chevron" class="fas fa-chevron-down text-gray-400"></i>
         </button>
-        <div id="smart-screenshots-content" class="collapsible-content open">
-          <div class="grid md:grid-cols-3 gap-4 p-4 pt-0" id="smart-screenshots-grid">
-            <!-- Filled by JS -->
+        <div id="site-profile-content" class="collapsible-content">
+          <div class="px-4 pb-4">
+            <div class="grid md:grid-cols-2 gap-4" id="site-profile-grid">
+              <!-- Filled by JS -->
+            </div>
           </div>
         </div>
       </div>
 
-      <!-- Raw JSON -->
+      <!-- Raw JSON (Collapsed) -->
       <div class="card overflow-hidden">
-        <button onclick="toggleSection('smart-analysis')" class="w-full p-4 flex items-center justify-between hover:bg-slate-800/50 transition">
-          <h3 class="font-semibold text-slate-200 flex items-center gap-2">
-            <i class="fas fa-code text-slate-500"></i>
+        <button onclick="toggleSection('raw-json')" class="w-full p-4 flex items-center justify-between hover:bg-gray-50 transition">
+          <h3 class="font-semibold text-gray-900 flex items-center gap-2">
+            <i class="fas fa-code text-gray-400"></i>
             Raw API Response
           </h3>
-          <i id="smart-analysis-chevron" class="fas fa-chevron-down text-slate-500"></i>
+          <i id="raw-json-chevron" class="fas fa-chevron-down text-gray-400"></i>
         </button>
-        <div id="smart-analysis-content" class="collapsible-content">
+        <div id="raw-json-content" class="collapsible-content">
           <div class="p-4 pt-0">
-            <pre id="smart-raw-json" class="bg-slate-900 text-cyan-400 p-4 rounded-lg overflow-auto max-h-96 text-xs font-mono"></pre>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Manual Mode Results Section -->
-    <div id="results-section" class="hidden space-y-6">
-      
-      <!-- Verdict Hero Card -->
-      <div id="verdict-card" class="rounded-xl shadow-lg text-white p-8">
-        <div class="flex items-start justify-between">
-          <div>
-            <div class="flex items-center gap-3 mb-2">
-              <span id="verdict-badge" class="text-xs font-bold uppercase tracking-wider bg-white/20 px-3 py-1 rounded-full"></span>
-            </div>
-            <h2 id="verdict-title" class="text-3xl font-bold mb-2"></h2>
-            <p id="verdict-insight" class="text-white/90 text-lg"></p>
-          </div>
-          <div id="verdict-score" class="text-6xl font-bold opacity-90"></div>
-        </div>
-      </div>
-
-      <!-- Key Insight -->
-      <div id="insight-card" class="card p-6">
-        <h3 class="font-semibold text-slate-200 mb-3 flex items-center gap-2">
-          <i class="fas fa-bullseye text-pink-400"></i>
-          Your Email Hook
-        </h3>
-        <blockquote id="email-hook" class="text-lg text-slate-300 border-l-4 border-pink-400 pl-4 italic"></blockquote>
-        <button onclick="copyEmailHook()" class="mt-3 text-sm text-slate-500 hover:text-slate-300 transition">
-          <i class="fas fa-copy mr-1"></i> Copy to clipboard
-        </button>
-      </div>
-
-      <!-- Screenshots -->
-      <div class="card overflow-hidden">
-        <button onclick="toggleSection('screenshots')" class="w-full p-4 flex items-center justify-between hover:bg-slate-800/50 transition">
-          <h3 class="font-semibold text-slate-200 flex items-center gap-2">
-            <i class="fas fa-images text-violet-400"></i>
-            Screenshots Evidence
-          </h3>
-          <i id="screenshots-chevron" class="fas fa-chevron-down text-slate-500"></i>
-        </button>
-        <div id="screenshots-content" class="collapsible-content open">
-          <div class="grid md:grid-cols-3 gap-4 p-4 pt-0" id="screenshots-grid">
-            <!-- Screenshots inserted here -->
-          </div>
-        </div>
-      </div>
-
-      <!-- What Happened -->
-      <div class="card overflow-hidden">
-        <button onclick="toggleSection('details')" class="w-full p-4 flex items-center justify-between hover:bg-slate-800/50 transition">
-          <h3 class="font-semibold text-slate-200 flex items-center gap-2">
-            <i class="fas fa-clipboard-list text-violet-400"></i>
-            What Happened
-          </h3>
-          <i id="details-chevron" class="fas fa-chevron-down text-slate-500"></i>
-        </button>
-        <div id="details-content" class="collapsible-content">
-          <div class="p-4 pt-0 space-y-4" id="details-grid">
-            <!-- Details inserted here -->
-          </div>
-        </div>
-      </div>
-
-      <!-- Full Analysis (collapsed) -->
-      <div class="card overflow-hidden">
-        <button onclick="toggleSection('analysis')" class="w-full p-4 flex items-center justify-between hover:bg-slate-800/50 transition">
-          <h3 class="font-semibold text-slate-200 flex items-center gap-2">
-            <i class="fas fa-code text-slate-500"></i>
-            Raw API Response (for Clay)
-          </h3>
-          <i id="analysis-chevron" class="fas fa-chevron-down text-slate-500"></i>
-        </button>
-        <div id="analysis-content" class="collapsible-content">
-          <div class="p-4 pt-0">
-            <pre id="raw-json" class="bg-slate-900 text-cyan-400 p-4 rounded-lg overflow-auto max-h-96 text-xs font-mono"></pre>
+            <pre id="smart-raw-json" class="bg-gray-100 text-gray-800 p-4 rounded-lg overflow-auto max-h-96 text-xs font-mono"></pre>
           </div>
         </div>
       </div>
@@ -446,26 +305,26 @@
 
     <!-- Empty State -->
     <div id="empty-state" class="text-center py-16">
-      <div class="inline-flex items-center justify-center w-20 h-20 bg-slate-800 rounded-full mb-4">
-        <i class="fas fa-search text-3xl text-slate-500"></i>
+      <div class="inline-flex items-center justify-center w-20 h-20 bg-gray-100 rounded-full mb-4">
+        <i class="fas fa-search text-3xl text-gray-400"></i>
       </div>
-      <h3 class="text-xl font-semibold text-slate-400">Ready to analyze</h3>
-      <p class="text-slate-500 mt-2">Enter a website and query to test their search, or enable Smart Mode</p>
+      <h3 class="text-xl font-semibold text-gray-600">Ready to analyze</h3>
+      <p class="text-gray-400 mt-2">Enter a website URL to test their search quality</p>
     </div>
   </main>
 
   <!-- Image Modal -->
-  <div id="image-modal" class="hidden fixed inset-0 bg-black/90 flex items-center justify-center z-50 p-4" onclick="closeModal(event)">
-    <div class="relative max-w-5xl w-full max-h-[90vh] overflow-auto bg-slate-900 rounded-lg">
-      <button onclick="closeModal()" class="absolute top-4 right-4 w-10 h-10 bg-slate-800 rounded-full shadow-lg flex items-center justify-center text-slate-400 hover:text-white z-10 transition">
+  <div id="image-modal" class="hidden fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4" onclick="closeModal(event)">
+    <div class="relative max-w-5xl w-full max-h-[90vh] overflow-auto bg-white rounded-xl">
+      <button onclick="closeModal()" class="absolute top-4 right-4 w-10 h-10 bg-gray-100 rounded-full shadow-lg flex items-center justify-center text-gray-600 hover:text-gray-900 z-10 transition">
         <i class="fas fa-times"></i>
       </button>
-      <img id="modal-image" src="" alt="Screenshot" class="w-full">
+      <img id="modal-image" src="" alt="Screenshot" class="w-full rounded-xl">
     </div>
   </div>
 
   <!-- Toast -->
-  <div id="toast" class="fixed bottom-6 right-6 bg-slate-800 text-white px-4 py-3 rounded-lg shadow-lg transform translate-y-20 opacity-0 transition-all duration-300 border border-slate-700">
+  <div id="toast" class="fixed bottom-6 right-6 bg-gray-900 text-white px-4 py-3 rounded-lg shadow-lg transform translate-y-20 opacity-0 transition-all duration-300">
     <span id="toast-message"></span>
   </div>
 

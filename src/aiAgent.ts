@@ -264,24 +264,33 @@ async function evaluateSearchResults(
   screenshotBase64: string
 ): Promise<EvaluationResult> {
   
-  const prompt = `Evaluate if this e-commerce search handled the query well.
+  const prompt = `Evaluate if this e-commerce PRODUCT search returned actual products.
 
 QUERY: "${query}"
 
-Look at the search results and determine:
-1. Are there 0 results? (SIGNIFICANT FAILURE)
-2. Are the results completely irrelevant to the query? (SIGNIFICANT FAILURE)
-3. Do results partially match but miss key intent? (PARTIAL - not significant)
-4. Do results clearly match the query intent? (PASSED)
+CRITICAL: The user is searching for PRODUCTS to buy, not blog posts, guides, or articles.
 
-SIGNIFICANT FAILURE means:
-- Zero results shown
-- OR results have NOTHING to do with the query (e.g., query "action hero underwear" shows plain white t-shirts)
+Check these in order:
+1. Are there 0 results shown? → SIGNIFICANT FAILURE
+2. Are the results BLOG POSTS, GUIDES, or ARTICLES instead of products? → SIGNIFICANT FAILURE
+   (Look for signs like "Tips:", "Guide:", "How to", article headlines, no prices, no "Add to Cart")
+3. Are the results actual PRODUCTS but completely irrelevant? → SIGNIFICANT FAILURE
+4. Are the results actual PRODUCTS that match the query? → PASSED
+
+SIGNIFICANT FAILURE if:
+- Zero results
+- Results are content/articles/guides (NOT buyable products)
+- Results are products but completely wrong category
+
+PASSED only if:
+- Results show actual purchasable products (with prices, buy buttons, product images)
+- Products are relevant to what the user searched for
 
 Return JSON:
 {
   "significant_failure": true/false,
   "result_count": number or null,
+  "result_type": "products" | "articles" | "mixed" | "none",
   "products_shown": ["product 1", "product 2", ...],
   "reasoning": "Brief explanation"
 }`;

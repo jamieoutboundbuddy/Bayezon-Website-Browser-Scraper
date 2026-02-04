@@ -1,12 +1,12 @@
 /**
  * Search Quality Analyzer - Frontend JS
- * v2.0 - Simplified: Always uses AI-powered Smart Analysis
+ * v3.0 - Clean Bayezon UI
  */
 
 let currentData = null;
 
 /**
- * Start analysis - always uses Smart Mode with Stagehand AI
+ * Start analysis
  */
 async function startAnalysis() {
   const domain = document.getElementById('domain-input').value.trim();
@@ -16,41 +16,29 @@ async function startAnalysis() {
     return;
   }
 
-  await runSmartAnalysis(domain);
-  }
-
-/**
- * Run Smart Mode analysis (domain only)
- */
-async function runSmartAnalysis(domain) {
   // Update UI
   document.getElementById('empty-state').classList.add('hidden');
-  document.getElementById('results-section').classList.add('hidden');
   document.getElementById('smart-results-section').classList.add('hidden');
   document.getElementById('loading-state').classList.remove('hidden');
   
   const btn = document.getElementById('search-btn');
   btn.disabled = true;
-  btn.innerHTML = '<i class="fas fa-robot fa-spin"></i> AI Analyzing...';
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Analyzing...';
 
-  updateProgress(5, 'Initializing AI Agent...');
+  updateProgress(5, 'Starting AI Agent...');
 
   try {
     const progressMessages = [
-      [10, 'AI Agent: Creating browser session...'],
-      [15, 'AI Agent: Navigating to website...'],
-      [20, 'AI Agent: Dismissing popups...'],
-      [25, 'AI Agent: Capturing homepage...'],
-      [30, 'Adversarial Test: Query 1/5 (Easy)...'],
-      [40, 'Adversarial Test: Query 2/5 (Medium)...'],
-      [50, 'Adversarial Test: Query 3/5 (Harder)...'],
-      [60, 'Adversarial Test: Query 4/5 (Hard)...'],
-      [70, 'Adversarial Test: Query 5/5 (Hardest)...'],
-      [85, 'AI Agent: Evaluating results...'],
-      [95, 'AI Agent: Building report...'],
+      [10, 'Creating browser session...'],
+      [20, 'Navigating to website...'],
+      [30, 'Testing Query 1/5...'],
+      [45, 'Testing Query 2/5...'],
+      [60, 'Testing Query 3/5...'],
+      [75, 'Testing Query 4/5...'],
+      [85, 'Testing Query 5/5...'],
+      [95, 'Building report...'],
     ];
 
-    // Simulate progress updates since we don't have SSE
     const progressInterval = setInterval(() => {
       const bar = document.getElementById('progress-bar');
       const current = parseInt(bar.style.width) || 0;
@@ -62,7 +50,7 @@ async function runSmartAnalysis(domain) {
           }
         }
       }
-    }, 3000);
+    }, 4000);
     
     const response = await fetch('/api/analyze', {
       method: 'POST',
@@ -83,398 +71,255 @@ async function runSmartAnalysis(domain) {
     updateProgress(100, 'Complete!');
     await new Promise(r => setTimeout(r, 500));
     
-    renderSmartResults(data);
+    renderResults(data);
     
   } catch (error) {
-    console.error('Smart analysis error:', error);
+    console.error('Analysis error:', error);
     showToast('Error: ' + error.message);
     document.getElementById('loading-state').classList.add('hidden');
     document.getElementById('empty-state').classList.remove('hidden');
   } finally {
     btn.disabled = false;
-    btn.innerHTML = '<i class="fas fa-robot"></i> Run Analysis';
+    btn.innerHTML = '<i class="fas fa-play"></i> Run Analysis';
   }
 }
 
 /**
- * Render Smart Mode results (Adversarial Testing) - CLEAN VERSION
+ * Render results
  */
-function renderSmartResults(data) {
+function renderResults(data) {
   document.getElementById('loading-state').classList.add('hidden');
-  document.getElementById('results-section').classList.add('hidden');
   document.getElementById('smart-results-section').classList.remove('hidden');
 
-  const { siteProfile, comparison, confidence, screenshotUrls, durationMs, adversarial, summary } = data;
-
+  const { siteProfile, comparison, screenshotUrls, durationMs, adversarial, summary } = data;
+  const verdict = comparison?.verdict || data.verdict || 'INCONCLUSIVE';
+  
   // Verdict card
   const verdictCard = document.getElementById('smart-verdict-card');
   const verdictBadge = document.getElementById('smart-verdict-badge');
   const verdictTitle = document.getElementById('smart-verdict-title');
   const verdictReason = document.getElementById('smart-verdict-reason');
-  const confidenceBadge = document.getElementById('smart-confidence-badge');
   const durationEl = document.getElementById('smart-duration');
+  const verdictIconContainer = document.getElementById('verdict-icon-container');
+  const verdictIcon = document.getElementById('verdict-icon');
 
-  const verdict = comparison?.verdict || data.verdict || 'INCONCLUSIVE';
-  
   // Set verdict styling
-  const verdictStyles = {
-    'OUTREACH': { 
-      class: 'verdict-outreach', 
-      badge: '🎯 OUTREACH', 
-      title: 'Search Failure Found - Great Prospect!' 
-    },
-    'SKIP': { 
-      class: 'verdict-skip', 
-      badge: '✓ SKIP', 
-      title: 'Search Passed All Tests' 
-    },
-    'REVIEW': { 
-      class: 'verdict-maybe', 
-      badge: '? REVIEW', 
-      title: 'Worth Investigating' 
-    },
-    'INCONCLUSIVE': { 
-      class: 'verdict-inconclusive', 
-      badge: '⚠ INCONCLUSIVE', 
-      title: 'Could Not Evaluate' 
-    }
-  };
-
-  const vstyle = verdictStyles[verdict] || verdictStyles['INCONCLUSIVE'];
-  verdictCard.className = `rounded-xl text-white p-8 ${vstyle.class}`;
-  verdictBadge.textContent = vstyle.badge;
-  verdictTitle.textContent = vstyle.title;
-  verdictReason.textContent = '';  // We'll show this in the summary instead
-
-  // Confidence badge - hide for cleaner look
-  confidenceBadge.className = 'hidden';
-
-  // Duration
-  if (durationMs) {
-    durationEl.textContent = `${(durationMs / 1000).toFixed(1)}s`;
+  if (verdict === 'OUTREACH') {
+    verdictCard.className = 'card p-6 verdict-outreach';
+    verdictBadge.className = 'text-xs font-bold uppercase tracking-wider px-2 py-1 rounded badge-error';
+    verdictBadge.textContent = '🎯 OUTREACH';
+    verdictTitle.textContent = 'Search Failure Found';
+    verdictIconContainer.className = 'w-12 h-12 rounded-full flex items-center justify-center bg-red-100';
+    verdictIcon.className = 'fas fa-times text-2xl text-red-500';
+  } else if (verdict === 'SKIP') {
+    verdictCard.className = 'card p-6 verdict-skip';
+    verdictBadge.className = 'text-xs font-bold uppercase tracking-wider px-2 py-1 rounded badge-success';
+    verdictBadge.textContent = '✓ SKIP';
+    verdictTitle.textContent = 'Search Passed All Tests';
+    verdictIconContainer.className = 'w-12 h-12 rounded-full flex items-center justify-center bg-green-100';
+    verdictIcon.className = 'fas fa-check text-2xl text-green-500';
+  } else {
+    verdictCard.className = 'card p-6 verdict-review';
+    verdictBadge.className = 'text-xs font-bold uppercase tracking-wider px-2 py-1 rounded badge-warning';
+    verdictBadge.textContent = '⚠ REVIEW';
+    verdictTitle.textContent = 'Could Not Fully Evaluate';
+    verdictIconContainer.className = 'w-12 h-12 rounded-full flex items-center justify-center bg-yellow-100';
+    verdictIcon.className = 'fas fa-question text-2xl text-yellow-600';
   }
 
-  // Hide site profile for cleaner look
-  const profileGrid = document.getElementById('site-profile-grid');
-  if (profileGrid) profileGrid.innerHTML = '';
+  verdictReason.textContent = comparison?.reason || '';
+  durationEl.textContent = durationMs ? `${(durationMs / 1000).toFixed(1)}s` : '';
 
-  // Render clean screenshots + summary
-  renderCleanResults(adversarial, screenshotUrls, summary, siteProfile);
+  // Screenshots grid
+  renderScreenshots(adversarial, screenshotUrls, siteProfile);
 
-  // Hide unnecessary sections
-  const insightCard = document.getElementById('smart-insight-card');
-  if (insightCard) insightCard.classList.add('hidden');
-  const missedCard = document.getElementById('missed-products-card');
-  if (missedCard) missedCard.classList.add('hidden');
+  // Narrative summary
+  renderNarrative(summary?.narrative || adversarial?.narrative);
+
+  // Queries tested
+  renderQueriesTested(adversarial?.queriesTested || []);
+
+  // Queries that would work
+  renderWorkingQueries(summary?.queriesThatWork || []);
+
+  // Site profile
+  renderSiteProfile(siteProfile);
 
   // Raw JSON
   document.getElementById('smart-raw-json').textContent = JSON.stringify(data, null, 2);
 }
 
 /**
- * Render CLEAN results - screenshots grid + narrative summary
+ * Render screenshots grid
  */
-function renderCleanResults(adversarial, screenshots, summary, siteProfile) {
-  const container = document.getElementById('comparison-container');
-  if (!container) return;
-  
-  const queriesTested = adversarial?.queriesTested || [];
-  const proofQuery = adversarial?.proofQuery;
-  const narrative = summary?.narrative || '';
-  const queriesThatWork = summary?.queriesThatWork || [];
-  
-  // Build screenshot grid HTML
-  const screenshotItems = [];
+function renderScreenshots(adversarial, screenshots, siteProfile) {
+  const grid = document.getElementById('smart-screenshots-grid');
+  if (!grid || !screenshots) return;
+
+  const items = [];
   
   // Homepage
-  if (screenshots?.homepage) {
-    screenshotItems.push({
+  if (screenshots.homepage) {
+    items.push({
       url: screenshots.homepage,
       label: 'Homepage',
-      sublabel: siteProfile?.companyName || ''
+      sublabel: siteProfile?.companyName || siteProfile?.company || ''
     });
   }
-  
-  // Each query result
+
+  // Query results
+  const queriesTested = adversarial?.queriesTested || [];
   queriesTested.forEach((q, i) => {
     const url = screenshots[`results_${i + 1}`] || screenshots.results;
     if (url) {
-      screenshotItems.push({
-        url: url,
-        label: q.passed ? `✅ Query ${i + 1}` : `❌ Query ${i + 1} (FAILED)`,
-        sublabel: `"${q.query}"`,
+      items.push({
+        url,
+        label: q.passed ? `✅ Query ${i + 1}` : `❌ Query ${i + 1}`,
+        sublabel: q.query?.substring(0, 40) + (q.query?.length > 40 ? '...' : ''),
         failed: !q.passed
       });
     }
   });
-  
-  container.innerHTML = `
-    <!-- SCREENSHOTS GRID -->
-    <div class="mb-8">
-      <h3 class="text-lg font-semibold text-slate-200 mb-4">
-        <i class="fas fa-images text-cyan-400 mr-2"></i>
-        Screenshots
-      </h3>
-      <div class="grid grid-cols-2 md:grid-cols-${Math.min(screenshotItems.length, 4)} gap-4">
-        ${screenshotItems.map(item => `
-          <div class="cursor-pointer group" onclick="openModal('${item.url}', '${item.label}')">
-            <div class="aspect-video rounded-lg overflow-hidden border-2 ${
-              item.failed ? 'border-red-500/50' : 'border-slate-700'
-            } group-hover:border-cyan-500 transition">
-              <img src="${item.url}" alt="${item.label}" class="w-full h-full object-cover object-top">
-            </div>
-            <p class="text-sm font-medium mt-2 ${item.failed ? 'text-red-400' : 'text-slate-300'}">${item.label}</p>
-            <p class="text-xs text-slate-500 truncate">${item.sublabel}</p>
-          </div>
-        `).join('')}
+
+  grid.innerHTML = items.map(item => `
+    <div class="cursor-pointer group" onclick="openModal('${item.url}')">
+      <div class="screenshot-container ${item.failed ? 'border-red-300' : ''} group-hover:shadow-lg transition">
+        <img src="${item.url}" alt="${item.label}">
       </div>
+      <p class="text-sm font-medium mt-2 ${item.failed ? 'text-red-600' : 'text-gray-900'}">${item.label}</p>
+      <p class="text-xs text-gray-500 truncate">${item.sublabel || ''}</p>
     </div>
-    
-    <!-- NARRATIVE SUMMARY -->
-    <div class="mb-8 p-6 rounded-xl bg-slate-800/70 border border-slate-700">
-      <h3 class="text-lg font-semibold text-slate-200 mb-4">
-        <i class="fas fa-file-alt text-cyan-400 mr-2"></i>
-        Analysis Summary
-      </h3>
-      <div class="text-slate-300 whitespace-pre-line font-mono text-sm leading-relaxed">
-        ${narrative || 'No summary available.'}
-      </div>
-    </div>
-    
-    ${proofQuery ? `
-    <!-- PROOF OF FAILURE -->
-    <div class="mb-8 p-6 rounded-xl bg-red-500/10 border border-red-500/30">
-      <h3 class="text-lg font-semibold text-red-400 mb-2">
-        <i class="fas fa-exclamation-triangle mr-2"></i>
-        Proof Query (Use This in Outreach)
-      </h3>
-      <p class="text-2xl font-mono text-red-300">"${proofQuery}"</p>
-      <p class="text-sm text-slate-400 mt-2">This query returned no relevant results, proving their search needs improvement.</p>
-    </div>
-    ` : ''}
-    
-    <!-- QUERIES THAT WOULD WORK -->
-    ${queriesThatWork.length > 0 ? `
-    <div class="p-6 rounded-xl bg-slate-800/50 border border-slate-700">
-      <h3 class="text-lg font-semibold text-slate-200 mb-4">
-        <i class="fas fa-lightbulb text-amber-400 mr-2"></i>
-        Queries That Would Work (Simple Keywords)
-      </h3>
-      <div class="flex flex-wrap gap-2">
-        ${queriesThatWork.map(q => `
-          <span class="px-3 py-1.5 rounded-full bg-slate-700 text-slate-300 text-sm font-mono">${q}</span>
-        `).join('')}
-      </div>
-      <p class="text-xs text-slate-500 mt-3">These simple keyword searches would likely return results, but shoppers often use natural language instead.</p>
-    </div>
-    ` : ''}
-  `;
+  `).join('');
 }
 
 /**
- * Render adversarial query progression (LEGACY - kept for compatibility)
+ * Render narrative summary
  */
-function renderAdversarialProgression(adversarial, screenshots) {
-  // Now handled by renderCleanResults
-  renderCleanResults(adversarial, screenshots, null, null);
-}
-
-/**
- * Render single query result (fallback for non-adversarial)
- */
-function renderSingleQueryResult(queries, comparison, screenshots) {
-  const container = document.getElementById('comparison-container');
+function renderNarrative(narrative) {
+  const container = document.getElementById('narrative-summary');
   if (!container) return;
-  
-  container.innerHTML = `
-    <div class="p-6 rounded-lg bg-slate-800/50 border border-slate-700">
-      <h3 class="text-lg font-semibold text-slate-200 mb-4">
-        <i class="fas fa-search text-cyan-400 mr-2"></i>
-        Search Test Result
-      </h3>
-      <div class="space-y-4">
-        <div>
-          <span class="text-xs text-slate-500 uppercase">Query Tested</span>
-          <p class="font-mono text-cyan-300">"${queries.naturalLanguageQuery}"</p>
-        </div>
-        <div class="flex gap-4">
-          <div>
-            <span class="text-xs text-slate-500 uppercase">Results</span>
-            <p class="text-2xl font-bold text-slate-200">${comparison.nlResultCount ?? '?'}</p>
-          </div>
-          <div>
-            <span class="text-xs text-slate-500 uppercase">Relevance</span>
-            <p class="text-sm ${comparison.nlRelevance === 'high' ? 'text-green-400' : comparison.nlRelevance === 'none' ? 'text-red-400' : 'text-amber-400'}">
-              ${comparison.nlRelevance?.toUpperCase() || 'Unknown'}
-            </p>
+
+  if (narrative) {
+    container.innerHTML = `
+      <div class="bg-gray-50 rounded-lg p-4 text-gray-700 leading-relaxed whitespace-pre-line">
+        ${narrative}
       </div>
-      </div>
-        ${screenshots?.results ? `
-          <div class="mt-4 cursor-pointer" onclick="openModal('${screenshots.results}', 'Search Results')">
-            <img src="${screenshots.results}" alt="Search Results" class="rounded-lg border border-slate-600 max-h-64 object-cover object-top">
-      </div>
-      ` : ''}
-      </div>
-    </div>
-  `;
+    `;
+  } else {
+    container.innerHTML = `<p class="text-gray-400 italic">No summary available.</p>`;
+  }
 }
 
 /**
- * Render site profile cards
+ * Render queries tested
+ */
+function renderQueriesTested(queries) {
+  const container = document.getElementById('queries-tested');
+  if (!container) return;
+
+  if (queries.length === 0) {
+    container.innerHTML = `<p class="text-gray-400 italic">No queries tested.</p>`;
+    return;
+  }
+
+  container.innerHTML = queries.map((q, i) => `
+    <div class="p-4 rounded-lg ${q.passed ? 'query-passed' : 'query-failed'}">
+      <div class="flex items-start justify-between gap-4">
+        <div class="flex-1">
+          <div class="flex items-center gap-2 mb-1">
+            <span class="text-xs font-semibold ${q.passed ? 'text-green-700' : 'text-red-700'}">
+              Query ${i + 1}
+            </span>
+            <span class="text-xs px-2 py-0.5 rounded-full ${q.passed ? 'bg-green-200 text-green-800' : 'bg-red-200 text-red-800'}">
+              ${q.passed ? 'PASSED' : 'FAILED'}
+            </span>
+          </div>
+          <p class="font-medium text-gray-900">"${q.query}"</p>
+          ${q.resultCount !== null && q.resultCount !== undefined ? 
+            `<p class="text-sm text-gray-500 mt-1">${q.resultCount} results found</p>` : ''
+          }
+          ${q.reasoning ? 
+            `<p class="text-sm text-gray-500 mt-1">${q.reasoning}</p>` : ''
+          }
+        </div>
+        <div class="text-2xl ${q.passed ? 'text-green-500' : 'text-red-500'}">
+          <i class="fas ${q.passed ? 'fa-check-circle' : 'fa-times-circle'}"></i>
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+/**
+ * Render queries that would work
+ */
+function renderWorkingQueries(queries) {
+  const section = document.getElementById('working-queries-section');
+  const container = document.getElementById('working-queries');
+  
+  if (!section || !container) return;
+
+  if (queries.length === 0) {
+    section.classList.add('hidden');
+    return;
+  }
+
+  section.classList.remove('hidden');
+  container.innerHTML = queries.map(q => `
+    <span class="px-3 py-1.5 rounded-full bg-gray-100 text-gray-700 text-sm border border-gray-200">${q}</span>
+  `).join('');
+}
+
+/**
+ * Render site profile
  */
 function renderSiteProfile(profile) {
   if (!profile) return;
   
   const grid = document.getElementById('site-profile-grid');
+  if (!grid) return;
   
   const items = [
-    { 
-      icon: 'fa-building', 
-      label: 'Company', 
-      value: profile.company || 'Unknown',
-      color: 'text-cyan-400'
-    },
-    { 
-      icon: 'fa-industry', 
-      label: 'Industry', 
-      value: profile.industry || 'Unknown',
-      color: 'text-violet-400'
-    },
-    { 
-      icon: 'fa-boxes', 
-      label: 'Catalog Size', 
-      value: (profile.estimatedCatalogSize || 'unknown').charAt(0).toUpperCase() + (profile.estimatedCatalogSize || 'unknown').slice(1),
-      color: 'text-pink-400'
-    },
-    { 
-      icon: 'fa-search', 
-      label: 'Search Type', 
-      value: profile.searchType || 'Unknown',
-      color: 'text-amber-400'
-    }
+    { label: 'Company', value: profile.company || profile.companyName || 'Unknown' },
+    { label: 'Industry', value: profile.industry || 'Unknown' },
+    { label: 'Catalog Size', value: profile.estimatedCatalogSize || 'Unknown' },
+    { label: 'Search Type', value: profile.searchType || 'Unknown' }
   ];
 
   grid.innerHTML = items.map(item => `
-    <div class="bg-slate-800/50 rounded-lg p-4">
-      <div class="flex items-center gap-2 mb-1">
-        <i class="fas ${item.icon} ${item.color}"></i>
-        <span class="text-xs text-slate-500 uppercase">${item.label}</span>
-      </div>
-      <p class="font-semibold text-slate-200">${item.value}</p>
+    <div class="bg-gray-50 rounded-lg p-3">
+      <span class="text-xs text-gray-500 uppercase">${item.label}</span>
+      <p class="font-medium text-gray-900">${item.value}</p>
     </div>
   `).join('');
-
-  // Add visible products/categories if available
-  if (profile.visibleProducts?.length > 0) {
-    grid.innerHTML += `
-      <div class="bg-slate-800/50 rounded-lg p-4 md:col-span-2">
-        <div class="flex items-center gap-2 mb-2">
-          <i class="fas fa-eye text-cyan-400"></i>
-          <span class="text-xs text-slate-500 uppercase">Visible Products</span>
-    </div>
-        <div class="flex flex-wrap gap-1">
-          ${profile.visibleProducts.slice(0, 6).map(p => 
-            `<span class="text-xs bg-slate-700 px-2 py-1 rounded text-slate-300">${p}</span>`
-          ).join('')}
-          ${profile.visibleProducts.length > 6 ? `<span class="text-xs text-slate-500">+${profile.visibleProducts.length - 6} more</span>` : ''}
-        </div>
-      </div>
-    `;
-  }
-
-  if (profile.visibleCategories?.length > 0) {
-    grid.innerHTML += `
-      <div class="bg-slate-800/50 rounded-lg p-4 md:col-span-2">
-        <div class="flex items-center gap-2 mb-2">
-          <i class="fas fa-folder text-violet-400"></i>
-          <span class="text-xs text-slate-500 uppercase">Categories</span>
-        </div>
-        <div class="flex flex-wrap gap-1">
-          ${profile.visibleCategories.slice(0, 8).map(c => 
-            `<span class="text-xs bg-slate-700 px-2 py-1 rounded text-slate-300">${c}</span>`
-          ).join('')}
-          ${profile.visibleCategories.length > 8 ? `<span class="text-xs text-slate-500">+${profile.visibleCategories.length - 8} more</span>` : ''}
-        </div>
-      </div>
-    `;
-  }
-}
-
-// renderComparison removed - replaced by renderAdversarialProgression
-
-/**
- * Render missed products card
- */
-function renderMissedProducts(missedProducts) {
-  const card = document.getElementById('missed-products-card');
-  const list = document.getElementById('missed-products-list');
-  
-  if (missedProducts && missedProducts.length > 0) {
-    card.classList.remove('hidden');
-    list.innerHTML = missedProducts.map(p => 
-      `<span class="missed-product-tag px-3 py-1.5 rounded-full text-sm font-medium">${p}</span>`
-    ).join('');
-  } else {
-    card.classList.add('hidden');
-  }
 }
 
 /**
- * Render smart screenshots grid - NOW EMPTY (handled by renderCleanResults)
- */
-function renderSmartScreenshots(urls, adversarial) {
-  // Screenshots are now rendered inside renderCleanResults
-  // Hide the separate screenshots section
-  const grid = document.getElementById('smart-screenshots-grid');
-  if (grid) grid.innerHTML = '';
-}
-
-/**
- * Copy smart email hook
- */
-function copySmartEmailHook() {
-  const text = document.getElementById('smart-email-hook').textContent;
-  navigator.clipboard.writeText(text).then(() => {
-    showToast('Copied to clipboard!');
-  });
-}
-
-
-/**
- * Update progress bar and message
+ * Update progress
  */
 function updateProgress(pct, message) {
   document.getElementById('progress-bar').style.width = `${pct}%`;
   document.getElementById('loading-message').textContent = message;
 }
 
-
 /**
- * Toggle collapsible section
+ * Toggle section
  */
 function toggleSection(id) {
   const content = document.getElementById(`${id}-content`);
   const chevron = document.getElementById(`${id}-chevron`);
   
-  content.classList.toggle('open');
-  chevron.classList.toggle('fa-chevron-down');
-  chevron.classList.toggle('fa-chevron-up');
+  if (content) content.classList.toggle('open');
+  if (chevron) {
+    chevron.classList.toggle('fa-chevron-down');
+    chevron.classList.toggle('fa-chevron-up');
+  }
 }
 
 /**
- * Copy email hook
+ * Open modal
  */
-function copyEmailHook() {
-  const text = document.getElementById('email-hook').textContent;
-  navigator.clipboard.writeText(text).then(() => {
-    showToast('Copied to clipboard!');
-  });
-}
-
-/**
- * Open image modal
- */
-function openModal(src, title) {
+function openModal(src) {
   document.getElementById('modal-image').src = src;
   document.getElementById('image-modal').classList.remove('hidden');
   document.body.style.overflow = 'hidden';
