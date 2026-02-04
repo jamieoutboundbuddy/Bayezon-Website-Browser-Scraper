@@ -4,6 +4,8 @@
  */
 
 let currentData = null;
+let currentBatchId = null;
+let batchPollInterval = null;
 
 /**
  * Start analysis
@@ -363,7 +365,166 @@ function showToast(message) {
   }, 3000);
 }
 
-// Keyboard shortcuts
+/**
+ * Switch between tabs
+ */
+function switchTab(tab) {
+  // Hide all tabs
+  document.getElementById('single-tab').classList.add('hidden');
+  document.getElementById('batch-tab').classList.add('hidden');
+  
+  // Remove active styling from all tabs
+  document.getElementById('tab-single').classList.remove('border-b-2', 'border-gray-900', 'text-gray-900');
+  document.getElementById('tab-batch').classList.remove('border-b-2', 'border-gray-900', 'text-gray-900');
+  document.getElementById('tab-single').classList.add('border-b-2', 'border-transparent', 'text-gray-600');
+  document.getElementById('tab-batch').classList.add('border-b-2', 'border-transparent', 'text-gray-600');
+  
+  // Show selected tab and mark active
+  if (tab === 'single') {
+    document.getElementById('single-tab').classList.remove('hidden');
+    document.getElementById('tab-single').classList.add('border-b-2', 'border-gray-900', 'text-gray-900');
+    document.getElementById('tab-single').classList.remove('border-transparent', 'text-gray-600');
+  } else {
+    document.getElementById('batch-tab').classList.remove('hidden');
+    document.getElementById('tab-batch').classList.add('border-b-2', 'border-gray-900', 'text-gray-900');
+    document.getElementById('tab-batch').classList.remove('border-transparent', 'text-gray-600');
+  }
+}
+
+/**
+ * Handle CSV file selection
+ */
+function handleCsvSelected() {
+  const fileInput = document.getElementById('csv-file');
+  const file = fileInput.files[0];
+  
+  if (!file) return;
+  
+  document.getElementById('csv-filename').classList.remove('hidden');
+  document.getElementById('filename-text').textContent = file.name + ` (${(file.size / 1024 / 1024).toFixed(2)} MB)`;
+}
+
+/**
+ * Upload CSV and start batch processing
+ */
+async function uploadCsv() {
+  const password = document.getElementById('csv-password').value.trim();
+  const fileInput = document.getElementById('csv-file');
+  const file = fileInput.files[0];
+  
+  if (!password) {
+    showToast('Please enter the CSV upload password');
+    return;
+  }
+  
+  if (!file) {
+    showToast('Please select a CSV file');
+    return;
+  }
+  
+  const btn = document.getElementById('upload-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Uploading...';
+  
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    const response = await fetch('/api/batch/upload', {
+      method: 'POST',
+      headers: {
+        'x-csv-password': password
+      },
+      body: formData
+    });
+    
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({ error: 'Upload failed' }));
+      throw new Error(err.error || 'Upload failed');
+    }
+    
+    const data = await response.json();
+    currentBatchId = data.batchId;
+    
+    showToast(`✓ Batch uploaded! ${data.totalDomains} domains queued for processing.`);
+    
+    // Show batch status
+    document.getElementById('batch-empty-state').classList.add('hidden');
+    document.getElementById('batch-status-section').classList.remove('hidden');
+    
+    // Clear form
+    fileInput.value = '';
+    document.getElementById('csv-filename').classList.add('hidden');
+    document.getElementById('csv-password').value = '';
+    
+    // Start polling
+    pollBatchStatus();
+    if (batchPollInterval) clearInterval(batchPollInterval);
+    batchPollInterval = setInterval(() => pollBatchStatus(), 5000);
+    
+  } catch (error) {
+    console.error('Upload error:', error);
+    showToast('Error: ' + error.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-upload"></i> Upload & Start Processing';
+  }
+}
+
+/**
+ * Poll batch status
+ */
+async function pollBatchStatus() {
+  if (!currentBatchId) return;
+  
+  try {
+    const response = await fetch(`/api/batch/${currentBatchId}`);
+    
+    if (!response.ok) {
+      if (response.status === 404) {
+        clearInterval(batchPollInterval);
+        showToast('Batch not found');
+      }
+      return;
+    }
+    
+    const data = await response.json();
+    
+    // Update progress
+    const total = data.totalDomains;
+    const completed = data.progress.completed;
+    const progress = total > 0 ? (completed / total) * 100 : 0;
+    
+    document.getElementById('batch-progress-bar').style.width = `${progress}%`;
+    document.getElementById('batch-progress-text').textContent = `${completed}/${total}`;
+    document.getElementById('batch-total').textContent = total;
+    document.getElementById('batch-completed').textContent = completed;
+    document.getElementById('batch-running').textContent = data.progress.statusBreakdown.running;
+    document.getElementById('batch-failed').textContent = data.progress.statusBreakdown.failed;
+    document.getElementById('batch-id-display').textContent = data.batchId;
+    
+    // Stop polling when complete
+    if (data.status === 'completed' || data.status === 'failed') {
+      clearInterval(batchPollInterval);
+      showToast(`Batch ${data.status === 'completed' ? 'completed' : 'failed'}!`);
+    }
+    
+  } catch (error) {
+    console.error('Poll error:', error);
+  }
+}
+
+/**
+ * Copy batch ID to clipboard
+ */
+function copyBatchId() {
+  const batchId = document.getElementById('batch-id-display').textContent;
+  navigator.clipboard.writeText(batchId);
+  showToast('Batch ID copied!');
+}
+
+/**
+ * Keyboard shortcuts
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') closeModal();
   if (e.key === 'Enter' && e.target.tagName === 'INPUT') startAnalysis();
