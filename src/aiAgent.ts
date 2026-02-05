@@ -125,8 +125,8 @@ async function createStagehandSession(): Promise<Stagehand> {
     env: 'BROWSERBASE',
     apiKey,
     projectId,
-    modelName: 'gpt-4o',  // Required for .act() to work in Stagehand 3.x
-    modelClientOptions: {
+    model: {
+      modelName: 'gpt-4o',  // Required for .act() to work in Stagehand 3.x
       apiKey: process.env.OPENAI_API_KEY,
     },
   });
