@@ -50,6 +50,9 @@ export function stopBatchProcessor(): void {
   }
 }
 
+// Track if we've already warned about missing tables
+let tablesMissingWarned = false;
+
 /**
  * Process the next batch of queued items
  */
@@ -64,7 +67,10 @@ async function processNextBatch(): Promise<void> {
   try {
     const db = getDb();
     if (!db) {
-      console.log('[BATCH] Database not available, skipping cycle');
+      if (!tablesMissingWarned) {
+        console.log('[BATCH] Database not available, skipping cycles silently');
+        tablesMissingWarned = true;
+      }
       return;
     }
 
@@ -137,6 +143,14 @@ async function processNextBatch(): Promise<void> {
     await processItemsWithConcurrency(queuedItems, activeBatch.batchId, db);
 
   } catch (error: any) {
+    // Silently ignore "table does not exist" errors - expected until prisma db push is run
+    if (error.message?.includes('does not exist in the current database')) {
+      if (!tablesMissingWarned) {
+        console.warn('[BATCH] Database tables not yet created. Run "npx prisma db push" to create them.');
+        tablesMissingWarned = true;
+      }
+      return;
+    }
     console.error('[BATCH] Error in processing cycle:', error.message);
   } finally {
     isProcessing = false;

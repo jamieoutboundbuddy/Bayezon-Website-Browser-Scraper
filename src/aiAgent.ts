@@ -224,7 +224,7 @@ Output: Just the search query itself. One line. No explanation, no quotes, no al
 
   try {
     const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: 'gpt-4.1-mini',
       messages: [{ role: 'user', content: prompt }],
       max_tokens: 150,
       temperature: 0.85  // Higher temp for variety and more natural queries
@@ -978,7 +978,7 @@ Be direct, conversational, and compelling. No jargon. This is for a sales pitch 
 Write a 1-2 sentence summary acknowledging their search handles natural language well, but note there may still be edge cases worth exploring.`;
 
       const insightResponse = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: 'gpt-4.1-mini',
         messages: [{ role: 'user', content: insightPrompt }],
         max_tokens: 200,
         temperature: 0.7
