@@ -10,7 +10,7 @@ import { aiFullAnalysis } from './aiAgent';
 import { v4 as uuidv4 } from 'uuid';
 
 // Configuration
-const CONCURRENCY_LIMIT = 5; // Max parallel browser sessions
+const CONCURRENCY_LIMIT = 2; // Max parallel browser sessions (reduced from 5 to prevent session exhaustion)
 const POLL_INTERVAL_MS = 10000; // Check for new work every 10 seconds
 const BATCH_SIZE = 10; // Items to fetch per poll
 
