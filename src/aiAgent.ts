@@ -126,8 +126,6 @@ async function createStagehandSession(): Promise<Stagehand> {
     apiKey,
     projectId,
     verbose: 0,           // Disable verbose logging for speed
-    debugDom: false,      // Don't analyze DOM verbosely
-    enableCaching: true,  // Cache repeated page analyses
   });
 
   await stagehand.init();
