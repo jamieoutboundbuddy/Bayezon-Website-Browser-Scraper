@@ -125,6 +125,9 @@ async function createStagehandSession(): Promise<Stagehand> {
     env: 'BROWSERBASE',
     apiKey,
     projectId,
+    verbose: 0,           // Disable verbose logging for speed
+    debugDom: false,      // Don't analyze DOM verbosely
+    enableCaching: true,  // Cache repeated page analyses
   });
 
   await stagehand.init();
@@ -134,34 +137,115 @@ async function createStagehandSession(): Promise<Stagehand> {
 }
 
 // ============================================================================
-// Simplified Popup Dismissal - Let Stagehand AI handle it
+// Action Timeout Helper - Prevents hanging on slow actions
+// ============================================================================
+
+async function actWithTimeout(
+  stagehand: Stagehand, 
+  instruction: string, 
+  timeoutMs = 10000
+): Promise<void> {
+  const actionPromise = stagehand.act(instruction);
+  const timeoutPromise = new Promise<never>((_, reject) => 
+    setTimeout(() => reject(new Error(`Action timeout after ${timeoutMs}ms: ${instruction.substring(0, 50)}...`)), timeoutMs)
+  );
+  await Promise.race([actionPromise, timeoutPromise]);
+}
+
+// ============================================================================
+// Fast Popup Dismissal - JavaScript-first, Stagehand fallback
 // ============================================================================
 
 async function dismissPopups(stagehand: Stagehand, page: any): Promise<void> {
-  console.log('  [AI] Checking for popups...');
+  console.log('  [AI] Quick popup check...');
   
-  // Wait for popups to appear
-  await new Promise(r => setTimeout(r, 1500));
-  
+  // FAST: Try JavaScript-based dismissal first (instant, no API call)
   try {
-    // Single AI instruction handles all popup types
-    await stagehand.act(
-      "If there is any popup, modal, or overlay visible (like cookie consent, email signup, newsletter, or discount offer), close it by clicking the X button, 'No thanks', 'Close', 'Dismiss', or similar close button. Do NOT click subscribe, sign up, or any colored action buttons. If no popup is visible, do nothing."
-    );
-    console.log('  [AI] ✓ Popup check complete');
-  } catch (e: any) {
-    // Expected errors:
-    // - "No object generated: response did not match schema" = no popup found (LLM returns {})
-    // - Other schema validation errors when there's nothing to do
-    // These are all fine - just means no popup was visible
-    if (e.message?.includes('schema') || e.message?.includes('No object generated')) {
-      // This is expected when no popup exists
-    } else {
-      console.log(`  [AI] Popup check: ${e.message?.substring(0, 50) || 'no action needed'}`);
+    const dismissed = await page.evaluate(() => {
+      let found = false;
+      
+      // Common close button selectors
+      const closeSelectors = [
+        '[aria-label="Close"]',
+        '[aria-label="close"]', 
+        '[aria-label="Dismiss"]',
+        'button[class*="close"]',
+        'button[class*="Close"]',
+        '[class*="modal"] button[class*="close"]',
+        '[class*="popup"] button[class*="close"]',
+        '[class*="overlay"] button[class*="close"]',
+        '[data-testid="close-button"]',
+        '[data-dismiss="modal"]',
+        '.modal-close',
+        '.popup-close',
+        '#onetrust-accept-btn-handler', // Cookie consent (OneTrust)
+        '[id*="cookie"] button',
+        '[class*="cookie"] button[class*="accept"]',
+        '[class*="cookie"] button[class*="close"]',
+        'button[class*="newsletter"] + button', // "No thanks" next to signup
+        '[class*="email-signup"] button[class*="close"]',
+        '[class*="klaviyo"] button[class*="close"]', // Klaviyo popups
+        '[class*="attentive"] button[class*="close"]', // Attentive popups
+        '[id*="popup"] button[class*="close"]',
+        '[class*="modal-close"]',
+        '[class*="dialog"] button[aria-label*="close" i]',
+      ];
+      
+      for (const selector of closeSelectors) {
+        const el = document.querySelector(selector) as HTMLElement;
+        if (el && el.offsetParent !== null) { // Is visible
+          el.click();
+          found = true;
+        }
+      }
+      
+      // Also try clicking any visible X buttons in modals/overlays
+      const xButtons = document.querySelectorAll('[class*="modal"] svg, [class*="popup"] svg, [class*="overlay"] svg');
+      xButtons.forEach((btn: any) => {
+        const parent = btn.closest('button');
+        if (parent && parent.offsetParent !== null) {
+          parent.click();
+          found = true;
+        }
+      });
+      
+      return found;
+    });
+    
+    if (dismissed) {
+      console.log('  [AI] ✓ Popup dismissed via JS');
+      await new Promise(r => setTimeout(r, 300)); // Brief settle
+      return;
     }
+  } catch {
+    // JS approach failed, continue to Stagehand
   }
   
+  // Brief wait for any popups to appear (much shorter than before)
   await new Promise(r => setTimeout(r, 500));
+  
+  // SLOW FALLBACK: Only use Stagehand if JS didn't find anything
+  // But with a timeout to prevent hanging
+  try {
+    const popupPromise = stagehand.act(
+      "If there is a popup, modal, or overlay blocking the page, close it by clicking X or 'Close'. If nothing is blocking, do nothing."
+    );
+    
+    // 5 second timeout for popup handling
+    await Promise.race([
+      popupPromise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('popup timeout')), 5000))
+    ]);
+    console.log('  [AI] ✓ Popup check complete');
+  } catch (e: any) {
+    // Expected - either no popup, timeout, or schema error
+    if (e.message?.includes('timeout')) {
+      console.log('  [AI] Popup check timed out, continuing...');
+    }
+    // Schema errors are fine - means no popup found
+  }
+  
+  await new Promise(r => setTimeout(r, 200));
 }
 
 // ============================================================================
@@ -459,7 +543,7 @@ Return JSON:
 // Main Adversarial Analysis Pipeline
 // ============================================================================
 
-const MAX_ATTEMPTS = 5;
+const MAX_ATTEMPTS = 3;  // Reduced from 5 - most failures happen early
 
 export async function aiFullAnalysis(
   jobId: string,
@@ -518,7 +602,7 @@ export async function aiFullAnalysis(
     // Navigate to homepage
     console.log(`[ADVERSARIAL] Navigating to ${url}...`);
     await page.goto(url, { waitUntil: 'domcontentloaded' });
-    await new Promise(r => setTimeout(r, 3000));
+    await new Promise(r => setTimeout(r, 1500));  // Reduced from 3000
     
     // Dismiss popups
     await dismissPopups(stagehand, page);
@@ -526,27 +610,27 @@ export async function aiFullAnalysis(
     // Screenshot homepage - wait for images to load first
     console.log(`[ADVERSARIAL] Capturing homepage...`);
     await page.evaluate(() => window.scrollTo(0, 0));
-    await new Promise(r => setTimeout(r, 1000));
+    await new Promise(r => setTimeout(r, 500));  // Reduced from 1000
     
-    // Wait for images to load
+    // Wait for images to load (with shorter timeout)
     try {
       await page.evaluate(async () => {
         const images = Array.from(document.querySelectorAll('img'));
         await Promise.race([
-          Promise.all(images.slice(0, 20).map(img => {
+          Promise.all(images.slice(0, 10).map(img => {  // Reduced from 20
             if (img.complete) return Promise.resolve();
             return new Promise(resolve => {
               img.onload = resolve;
               img.onerror = resolve;
             });
           })),
-          new Promise(resolve => setTimeout(resolve, 5000)) // Max 5s wait
+          new Promise(resolve => setTimeout(resolve, 2000)) // Reduced from 5s to 2s
         ]);
       });
     } catch {
       // Ignore image loading errors
     }
-    await new Promise(r => setTimeout(r, 500));
+    await new Promise(r => setTimeout(r, 200));  // Reduced from 500
     
     const homepageScreenshotPath = getArtifactPath(jobId, domain, 'homepage', 'png');
     await page.screenshot({ 
@@ -629,7 +713,7 @@ Answer in 2-4 words only. Examples:
       if (attempt > 1) {
         console.log(`  [AI] Returning to homepage...`);
         await page.goto(url, { waitUntil: 'domcontentloaded' });
-        await new Promise(r => setTimeout(r, 2000));
+        await new Promise(r => setTimeout(r, 1000));  // Reduced from 2000
         await dismissPopups(stagehand, page);
       }
       
@@ -638,9 +722,6 @@ Answer in 2-4 words only. Examples:
       // ============================================================
       console.log(`  [AI] Executing search for: "${query}"`);
       
-      // Dismiss popups first
-      await dismissPopups(stagehand, page);
-      
       // Store URL before search to verify navigation
       const urlBeforeSearch = page.url();
       let searchSucceeded = false;
@@ -648,39 +729,44 @@ Answer in 2-4 words only. Examples:
       try {
         // Step 1: Click to open search (icon, button, or input)
         console.log(`  [AI] Step 1: Opening search...`);
-        await stagehand.act(
-          `Click the search icon or search button in the header to open the search interface`
+        await actWithTimeout(stagehand,
+          `Click the search icon, magnifying glass, or search button. Look in the header, top right corner, or navigation bar.`,
+          8000
         );
         
-        // Wait for search interface to fully appear
-        await new Promise(r => setTimeout(r, 2000));
+        // Wait for search interface to appear
+        await new Promise(r => setTimeout(r, 1000));
         
         // Step 2: Type into the NOW VISIBLE search input
         console.log(`  [AI] Step 2: Typing query into search input...`);
-        await stagehand.act(
-          `Type "${query}" into the search input field that is currently visible on the page`
+        await actWithTimeout(stagehand,
+          `Type "${query}" into the search input field that is currently visible on the page`,
+          8000
         );
         
-        await new Promise(r => setTimeout(r, 500));
+        await new Promise(r => setTimeout(r, 300));
         
         // Step 3: Submit the search by pressing Enter
         console.log(`  [AI] Step 3: Submitting search...`);
         try {
-          await stagehand.act(
-            `Press the Enter key on the keyboard to submit the search and navigate to results`
+          await actWithTimeout(stagehand,
+            `Press the Enter key on the keyboard to submit the search and navigate to results`,
+            8000
           );
         } catch (submitError: any) {
           // "Cannot find context" error means the page navigated - this is SUCCESS!
           if (submitError.message?.includes('Cannot find context') || 
               submitError.message?.includes('context with specified id')) {
             console.log(`  [AI] ✓ Page navigated (context destroyed) - search likely succeeded`);
+          } else if (submitError.message?.includes('timeout')) {
+            console.log(`  [AI] Submit timed out, checking if page navigated...`);
           } else {
             console.log(`  [AI] Submit error (will verify URL): ${submitError.message?.substring(0, 60)}`);
           }
         }
         
-        // Wait for results page to load (important after navigation)
-        await new Promise(r => setTimeout(r, 4000));
+        // Wait for results page to load
+        await new Promise(r => setTimeout(r, 2000));
         
         // Get fresh page reference after potential navigation
         const pages = stagehand.context.pages();
@@ -699,10 +785,11 @@ Answer in 2-4 words only. Examples:
           
           // Try clicking a submit button instead
           try {
-            await stagehand.act(
-              `Click the search submit button or magnifying glass icon to submit the search`
+            await actWithTimeout(stagehand,
+              `Click the search submit button or magnifying glass icon to submit the search`,
+              5000
             );
-            await new Promise(r => setTimeout(r, 3000));
+            await new Promise(r => setTimeout(r, 1500));
             
             const urlAfterRetry = currentPage.url();
             if (urlAfterRetry !== urlBeforeSearch) {
@@ -724,7 +811,7 @@ Answer in 2-4 words only. Examples:
           console.log(`  [AI] Fallback URL: ${searchUrl}`);
           try {
             await currentPage.goto(searchUrl, { waitUntil: 'domcontentloaded' });
-            await new Promise(r => setTimeout(r, 3000));
+            await new Promise(r => setTimeout(r, 1500));
             
             const urlAfterFallback = currentPage.url();
             if (urlAfterFallback.includes('search')) {
@@ -757,9 +844,6 @@ Answer in 2-4 words only. Examples:
       const pagesAfterSearch = stagehand.context.pages();
       const activePage = pagesAfterSearch[pagesAfterSearch.length - 1] || page;
       
-      // Dismiss post-search popups
-      await dismissPopups(stagehand, activePage);
-      
       // Check if we're still on homepage (search navigation failed)
       const finalUrl = activePage.url();
       const stillOnHomepage = finalUrl === urlBeforeSearch || 
@@ -773,29 +857,29 @@ Answer in 2-4 words only. Examples:
       }
       
       // Wait for images to load before screenshot
-      console.log(`  [AI] Waiting for images to load...`);
+      console.log(`  [AI] Capturing results...`);
       await activePage.evaluate(() => window.scrollTo(0, 0));
-      await new Promise(r => setTimeout(r, 1000));
+      await new Promise(r => setTimeout(r, 500));  // Reduced from 1000
       
-      // Wait for images to actually load
+      // Wait for images to actually load (shorter timeout)
       try {
         await activePage.evaluate(async () => {
           const images = Array.from(document.querySelectorAll('img'));
           await Promise.race([
-            Promise.all(images.slice(0, 20).map(img => {
+            Promise.all(images.slice(0, 10).map(img => {  // Reduced from 20
               if (img.complete) return Promise.resolve();
               return new Promise(resolve => {
                 img.onload = resolve;
                 img.onerror = resolve;
               });
             })),
-            new Promise(resolve => setTimeout(resolve, 5000)) // Max 5s wait
+            new Promise(resolve => setTimeout(resolve, 2000)) // Reduced from 5s to 2s
           ]);
         });
       } catch {
         // Ignore image loading errors
       }
-      await new Promise(r => setTimeout(r, 1000)); // Extra buffer
+      await new Promise(r => setTimeout(r, 300)); // Reduced from 1000
       
       // Check for error page BEFORE screenshot
       const pageContent = await activePage.evaluate(() => document.body?.innerText || '');
@@ -813,7 +897,7 @@ Answer in 2-4 words only. Examples:
         // Try to recover - go back to homepage
         try {
           await activePage.goto(url, { waitUntil: 'domcontentloaded' });
-          await new Promise(r => setTimeout(r, 2000));
+          await new Promise(r => setTimeout(r, 1000));  // Reduced from 2000
         } catch {
           // Ignore recovery errors
         }
