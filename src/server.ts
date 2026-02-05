@@ -2,6 +2,8 @@
  * Express server with REST API for website search tool
  */
 
+console.log('[SERVER] Starting module imports...');
+
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -34,7 +36,9 @@ import {
   getProcessorStatus 
 } from './batchProcessor';
 
+console.log('[SERVER] All imports complete, loading config...');
 dotenv.config();
+console.log('[SERVER] Config loaded, PORT=' + (process.env.PORT || '3000'));
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3000', 10);
