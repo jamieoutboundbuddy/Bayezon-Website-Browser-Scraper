@@ -162,71 +162,153 @@ async function dismissPopups(stagehand: Stagehand, page: any): Promise<void> {
     const dismissed = await page.evaluate(() => {
       let found = false;
       
-      // Common close button selectors
-      const closeSelectors = [
-        '[aria-label="Close"]',
-        '[aria-label="close"]', 
-        '[aria-label="Dismiss"]',
-        'button[class*="close"]',
-        'button[class*="Close"]',
-        '[class*="modal"] button[class*="close"]',
-        '[class*="popup"] button[class*="close"]',
-        '[class*="overlay"] button[class*="close"]',
-        '[data-testid="close-button"]',
-        '[data-dismiss="modal"]',
-        '.modal-close',
-        '.popup-close',
-        '#onetrust-accept-btn-handler', // Cookie consent (OneTrust)
-        '[id*="cookie"] button',
-        '[class*="cookie"] button[class*="accept"]',
-        '[class*="cookie"] button[class*="close"]',
-        'button[class*="newsletter"] + button', // "No thanks" next to signup
-        '[class*="email-signup"] button[class*="close"]',
-        '[class*="klaviyo"] button[class*="close"]', // Klaviyo popups
-        '[class*="attentive"] button[class*="close"]', // Attentive popups
-        '[id*="popup"] button[class*="close"]',
-        '[class*="modal-close"]',
-        '[class*="dialog"] button[aria-label*="close" i]',
+      // ============================================================
+      // STEP 1: Find dismiss buttons by TEXT content
+      // This catches Steve Madden "NO, THANKS", Allbirds "DECLINE OFFER", etc.
+      // ============================================================
+      const dismissTexts = [
+        'no, thanks', 'no thanks', 'no, thank you', 'no thank you',
+        'decline', 'decline offer', 'not now', 'maybe later',
+        'close', 'dismiss', 'skip', 'cancel', 'not interested',
+        'continue without', 'no discount', 'i\'ll pass'
       ];
       
-      for (const selector of closeSelectors) {
-        const el = document.querySelector(selector) as HTMLElement;
-        if (el && el.offsetParent !== null) { // Is visible
-          el.click();
-          found = true;
+      const allButtons = document.querySelectorAll('button, [role="button"], a[href="#"]');
+      for (const btn of allButtons) {
+        const el = btn as HTMLElement;
+        const text = el.innerText?.toLowerCase().trim();
+        if (text && el.offsetParent !== null) { // Is visible
+          for (const dismissText of dismissTexts) {
+            if (text === dismissText || text.includes(dismissText)) {
+              console.log('[POPUP] Clicking dismiss button:', text);
+              el.click();
+              found = true;
+              break;
+            }
+          }
+          if (found) break;
         }
       }
       
-      // Also try clicking any visible X buttons in modals/overlays
-      const xButtons = document.querySelectorAll('[class*="modal"] svg, [class*="popup"] svg, [class*="overlay"] svg');
-      xButtons.forEach((btn: any) => {
-        const parent = btn.closest('button');
-        if (parent && parent.offsetParent !== null) {
-          parent.click();
-          found = true;
+      // Brief pause after clicking
+      if (found) return found;
+      
+      // ============================================================
+      // STEP 2: Cookie consent banners (click OK/Accept)
+      // ============================================================
+      const cookieSelectors = [
+        '#onetrust-accept-btn-handler',
+        '[id*="cookie"] button[id*="accept"]',
+        '[id*="cookie"] button[id*="ok"]',
+        '[class*="cookie"] button',
+        '[class*="consent"] button[class*="accept"]',
+        '[class*="gdpr"] button',
+        'button[data-cookie-accept]',
+      ];
+      
+      for (const selector of cookieSelectors) {
+        try {
+          const el = document.querySelector(selector) as HTMLElement;
+          if (el && el.offsetParent !== null) {
+            console.log('[POPUP] Clicking cookie consent:', selector);
+            el.click();
+            found = true;
+          }
+        } catch { /* ignore */ }
+      }
+      
+      // ============================================================
+      // STEP 3: Modal X/Close buttons by aria-label or class
+      // ============================================================
+      const closeSelectors = [
+        '[aria-label="Close"]',
+        '[aria-label="close"]',
+        '[aria-label="Close modal"]',
+        '[aria-label="Close dialog"]',
+        '[aria-label="Dismiss"]',
+        'button[class*="close"]',
+        'button[class*="Close"]',
+        '[class*="modal-close"]',
+        '[class*="popup-close"]',
+        '[data-dismiss="modal"]',
+        '[data-testid="close-button"]',
+        '[data-testid="modal-close"]',
+      ];
+      
+      for (const selector of closeSelectors) {
+        try {
+          const el = document.querySelector(selector) as HTMLElement;
+          if (el && el.offsetParent !== null) {
+            console.log('[POPUP] Clicking close button:', selector);
+            el.click();
+            found = true;
+          }
+        } catch { /* ignore */ }
+      }
+      
+      // ============================================================
+      // STEP 4: Find X icons (SVG) inside modal overlays
+      // ============================================================
+      const modalContainers = document.querySelectorAll(
+        '[class*="modal"], [class*="Modal"], [class*="popup"], [class*="Popup"], ' +
+        '[class*="overlay"], [class*="Overlay"], [role="dialog"], [aria-modal="true"]'
+      );
+      
+      for (const modal of modalContainers) {
+        // Look for buttons containing SVG (likely X icons)
+        const buttons = modal.querySelectorAll('button');
+        for (const btn of buttons) {
+          const el = btn as HTMLElement;
+          // Check if button contains an SVG and is in top area of modal (close buttons usually are)
+          if (el.querySelector('svg') && el.offsetParent !== null) {
+            const rect = el.getBoundingClientRect();
+            const modalRect = (modal as HTMLElement).getBoundingClientRect();
+            // If button is in top 100px of modal, likely a close button
+            if (rect.top - modalRect.top < 100) {
+              console.log('[POPUP] Clicking SVG close button in modal');
+              el.click();
+              found = true;
+              break;
+            }
+          }
         }
-      });
+        if (found) break;
+      }
       
       return found;
     });
     
     if (dismissed) {
       console.log('  [AI] ✓ Popup dismissed via JS');
-      await new Promise(r => setTimeout(r, 300)); // Brief settle
+      await new Promise(r => setTimeout(r, 500)); // Let popup animation complete
+      
+      // Check for additional popups (sometimes there are multiple)
+      await page.evaluate(() => {
+        const dismissTexts = ['no, thanks', 'no thanks', 'decline', 'close', 'ok', 'accept'];
+        const buttons = document.querySelectorAll('button, [role="button"]');
+        for (const btn of buttons) {
+          const el = btn as HTMLElement;
+          const text = el.innerText?.toLowerCase().trim();
+          if (text && el.offsetParent !== null && dismissTexts.some(t => text.includes(t))) {
+            el.click();
+            break;
+          }
+        }
+      });
+      await new Promise(r => setTimeout(r, 300));
       return;
     }
-  } catch {
-    // JS approach failed, continue to Stagehand
+  } catch (e: any) {
+    console.log('  [AI] JS popup check error:', e.message?.substring(0, 50));
   }
   
-  // Brief wait for any popups to appear (much shorter than before)
+  // Brief wait for any popups to appear
   await new Promise(r => setTimeout(r, 500));
   
-  // SLOW FALLBACK: Only use Stagehand if JS didn't find anything
-  // But with a timeout to prevent hanging
+  // SLOW FALLBACK: Use Stagehand with better instruction
   try {
     const popupPromise = stagehand.act(
-      "If there is a popup, modal, or overlay blocking the page, close it by clicking X or 'Close'. If nothing is blocking, do nothing."
+      "If there is a popup, modal, or overlay blocking the page, close it by clicking 'No Thanks', 'No, Thanks', 'Decline', 'Close', 'X', or similar dismiss button. Do NOT click 'Yes', 'Subscribe', 'Sign Up', or accept buttons. If nothing is blocking, do nothing."
     );
     
     // 5 second timeout for popup handling
@@ -240,7 +322,6 @@ async function dismissPopups(stagehand: Stagehand, page: any): Promise<void> {
     if (e.message?.includes('timeout')) {
       console.log('  [AI] Popup check timed out, continuing...');
     }
-    // Schema errors are fine - means no popup found
   }
   
   await new Promise(r => setTimeout(r, 200));
@@ -922,12 +1003,14 @@ Answer in 2-4 words only. Examples:
         // Skip this query and continue to next - don't count it
         continue;
       } else if (stillOnHomepage) {
-        console.log(`  [AI] Marking as failure - screenshot is homepage, not search results`);
+        console.log(`  [AI] Marking as SYSTEM ERROR - still on homepage, search couldn't execute`);
         evaluation = {
           isSignificantFailure: true,
-          resultCount: 0,
+          resultCount: null,
+          relevantResultCount: 0,
+          firstRelevantPosition: null,
           productsFound: [],
-          reasoning: 'Search execution failed - never navigated to search results page (still on homepage)'
+          reasoning: 'SYSTEM ERROR: Search could not be executed (popup blocking or search UI not found). Still on homepage.'
         };
       } else {
         const resultsBase64 = fs.readFileSync(resultsScreenshotPath).toString('base64');
@@ -998,16 +1081,39 @@ Answer in 2-4 words only. Examples:
     
     const durationMs = Date.now() - startTime;
     
-    // Determine verdict
+    // Determine verdict - distinguish system errors from actual search failures
     let verdict: 'OUTREACH' | 'SKIP' | 'REVIEW';
     let reason: string;
     
-    if (proofQuery) {
+    // Check if failures are system errors (couldn't execute search) vs actual search quality issues
+    const systemErrorQueries = queriesTested.filter(q => q.reasoning?.includes('SYSTEM ERROR'));
+    const actualSearchFailures = queriesTested.filter(q => !q.passed && !q.reasoning?.includes('SYSTEM ERROR'));
+    const successfulQueries = queriesTested.filter(q => q.passed);
+    
+    if (systemErrorQueries.length === queriesTested.length) {
+      // ALL queries were system errors - we couldn't test the search at all
+      verdict = 'REVIEW';
+      reason = `Could not execute search on this site (likely popup blocking or search UI not found). Manual review needed.`;
+      // Clear proofQuery since it wasn't a real search failure
+      proofQuery = null;
+      failedOnAttempt = null;
+    } else if (proofQuery && !failureReasoning?.includes('SYSTEM ERROR')) {
+      // Real search failure found
       verdict = 'OUTREACH';
       reason = `Search failed on query "${proofQuery}": ${failureReasoning}`;
-    } else if (queriesTested.length === MAX_ATTEMPTS) {
+    } else if (actualSearchFailures.length > 0) {
+      // At least one actual search failure
+      const firstFailure = actualSearchFailures[0];
+      verdict = 'OUTREACH';
+      reason = `Search failed on query "${firstFailure.query}": ${firstFailure.reasoning}`;
+      proofQuery = firstFailure.query;
+    } else if (successfulQueries.length >= MAX_ATTEMPTS || queriesTested.length === MAX_ATTEMPTS) {
       verdict = 'SKIP';
-      reason = `Search handled all ${MAX_ATTEMPTS} test queries successfully`;
+      reason = `Search handled all ${successfulQueries.length} test queries successfully`;
+    } else if (systemErrorQueries.length > 0 && successfulQueries.length > 0) {
+      // Mixed - some worked, some system errors
+      verdict = 'SKIP';
+      reason = `Search handled ${successfulQueries.length} queries (${systemErrorQueries.length} had system errors)`;
     } else {
       verdict = 'REVIEW';
       reason = 'Analysis incomplete';
