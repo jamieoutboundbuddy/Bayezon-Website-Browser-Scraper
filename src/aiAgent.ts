@@ -995,9 +995,9 @@ Return JSON:
 }`;
 
   try {
-    // Use gpt-4o-mini for vision (gpt-4.1-mini doesn't support images)
+    // Use gpt-5-mini for vision evaluation (better reasoning, supports images)
     const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: 'gpt-5-mini',
       messages: [
         {
           role: 'user',
