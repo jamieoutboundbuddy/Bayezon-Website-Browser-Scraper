@@ -328,6 +328,473 @@ async function dismissPopups(stagehand: Stagehand, page: any): Promise<void> {
 }
 
 // ============================================================================
+// State Verification - Check if search UI actually opened
+// ============================================================================
+
+interface SearchState {
+  inputFound: boolean;
+  inputVisible: boolean;
+  urlChanged: boolean;
+  onSearchPage: boolean;
+}
+
+async function verifySearchOpened(page: any, originalUrl: string): Promise<SearchState> {
+  const currentUrl = page.url();
+  const urlChanged = currentUrl !== originalUrl && 
+                     currentUrl.replace(/\/$/, '') !== originalUrl.replace(/\/$/, '');
+  const onSearchPage = currentUrl.includes('/search') || 
+                       currentUrl.includes('?q=') || 
+                       currentUrl.includes('?query=') ||
+                       currentUrl.includes('?s=');
+  
+  // Check for visible search input
+  const inputCheck = await page.evaluate(() => {
+    const selectors = [
+      'input[type="search"]',
+      'input[name="q"]',
+      'input[name="query"]',
+      'input[name="search"]',
+      'input[name="s"]',
+      'input[placeholder*="search" i]',
+      'input[aria-label*="search" i]',
+      '[role="searchbox"]'
+    ];
+    
+    for (const selector of selectors) {
+      const input = document.querySelector(selector) as HTMLInputElement;
+      if (input) {
+        const rect = input.getBoundingClientRect();
+        const isVisible = rect.width > 0 && rect.height > 0 && 
+                          input.offsetParent !== null &&
+                          getComputedStyle(input).visibility !== 'hidden' &&
+                          getComputedStyle(input).display !== 'none';
+        return { found: true, visible: isVisible };
+      }
+    }
+    return { found: false, visible: false };
+  });
+  
+  return {
+    inputFound: inputCheck.found,
+    inputVisible: inputCheck.visible,
+    urlChanged,
+    onSearchPage
+  };
+}
+
+// ============================================================================
+// Site-Specific Selector Map
+// ============================================================================
+
+const SITE_SELECTORS: Record<string, { searchButton?: string; searchInput?: string }> = {
+  'stevemadden.com': { 
+    searchButton: 'button.header__icon--search, [data-action="toggle-search"]',
+    searchInput: 'input[name="q"]'
+  },
+  'allbirds.com': { 
+    searchButton: '[data-testid="search-button"], button[aria-label*="search" i]',
+    searchInput: 'input[type="search"]'
+  },
+  'nordstrom.com': {
+    searchButton: '[data-testid="search-button"]',
+    searchInput: 'input[name="keyword"]'
+  },
+  'nike.com': {
+    searchButton: 'button[aria-label="Open Search Modal"]',
+    searchInput: 'input[aria-label="Search Products"]'
+  }
+};
+
+function getSiteSelectors(domain: string): { searchButton?: string; searchInput?: string } | null {
+  // Check for exact match first
+  if (SITE_SELECTORS[domain]) {
+    return SITE_SELECTORS[domain];
+  }
+  // Check for partial match (e.g., "www.stevemadden.com" matches "stevemadden.com")
+  for (const [key, value] of Object.entries(SITE_SELECTORS)) {
+    if (domain.includes(key) || key.includes(domain.replace('www.', ''))) {
+      return value;
+    }
+  }
+  return null;
+}
+
+// ============================================================================
+// JS-First Search Execution with Layered Fallbacks
+// ============================================================================
+
+interface SearchExecutionResult {
+  success: boolean;
+  method: 'input_focus' | 'keyboard' | 'button_click' | 'site_specific' | 'url_fallback' | 'stagehand_ai' | 'none';
+  error?: string;
+}
+
+async function executeSearchWithFallbacks(
+  page: any,
+  stagehand: Stagehand,
+  query: string,
+  domain: string,
+  originalUrl: string
+): Promise<SearchExecutionResult> {
+  console.log(`  [SEARCH] Starting layered search for: "${query}"`);
+  
+  // ========================================================================
+  // LAYER 1: Direct Input Focus (Header Scoped)
+  // ========================================================================
+  console.log(`  [SEARCH] Layer 1: Trying direct input focus...`);
+  try {
+    const inputFocused = await page.evaluate((q: string) => {
+      // First, try to scope to header/nav
+      const headerSelectors = ['header', '[role="banner"]', 'nav', '.header', '#header'];
+      let scope: Element | Document = document;
+      
+      for (const sel of headerSelectors) {
+        const header = document.querySelector(sel);
+        if (header) {
+          scope = header;
+          break;
+        }
+      }
+      
+      // Search input selectors in priority order
+      const inputSelectors = [
+        'input[type="search"]',
+        'input[name="q"]',
+        'input[name="query"]',
+        'input[name="search"]',
+        '[role="searchbox"]',
+        'input[placeholder*="search" i]',
+        'input[aria-label*="search" i]'
+      ];
+      
+      // Try header-scoped first
+      for (const selector of inputSelectors) {
+        const input = scope.querySelector(selector) as HTMLInputElement;
+        if (input && input.offsetParent !== null) {
+          input.focus();
+          input.value = q;
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          return { found: true, selector };
+        }
+      }
+      
+      // Fall back to page-wide if not in header
+      if (scope !== document) {
+        for (const selector of inputSelectors) {
+          const input = document.querySelector(selector) as HTMLInputElement;
+          if (input && input.offsetParent !== null) {
+            input.focus();
+            input.value = q;
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            return { found: true, selector };
+          }
+        }
+      }
+      
+      return { found: false, selector: null };
+    }, query);
+    
+    if (inputFocused.found) {
+      console.log(`  [SEARCH] ✓ Layer 1 SUCCESS: Found input via ${inputFocused.selector}`);
+      
+      // Submit the search
+      await page.keyboard.press('Enter');
+      await new Promise(r => setTimeout(r, 2000));
+      
+      const state = await verifySearchOpened(page, originalUrl);
+      if (state.urlChanged || state.onSearchPage) {
+        console.log(`  [SEARCH] ✓ Search submitted successfully`);
+        return { success: true, method: 'input_focus' };
+      }
+    }
+  } catch (e: any) {
+    console.log(`  [SEARCH] Layer 1 error: ${e.message?.substring(0, 50)}`);
+  }
+  
+  // ========================================================================
+  // LAYER 2: Keyboard Shortcuts
+  // ========================================================================
+  console.log(`  [SEARCH] Layer 2: Trying keyboard shortcuts...`);
+  const shortcuts = [
+    { key: '/', name: 'slash' },
+    { key: 'Control+k', name: 'Ctrl+K' },
+    { key: 'Meta+k', name: 'Cmd+K' }
+  ];
+  
+  for (const shortcut of shortcuts) {
+    try {
+      await page.keyboard.press(shortcut.key);
+  await new Promise(r => setTimeout(r, 500));
+      
+      const state = await verifySearchOpened(page, originalUrl);
+      if (state.inputVisible) {
+        console.log(`  [SEARCH] ✓ Layer 2 SUCCESS: ${shortcut.name} opened search`);
+        
+        // Type and submit
+        await page.keyboard.type(query);
+        await new Promise(r => setTimeout(r, 300));
+        await page.keyboard.press('Enter');
+        await new Promise(r => setTimeout(r, 2000));
+        
+        const finalState = await verifySearchOpened(page, originalUrl);
+        if (finalState.urlChanged || finalState.onSearchPage) {
+          return { success: true, method: 'keyboard' };
+        }
+      }
+    } catch (e: any) {
+      // Continue to next shortcut
+    }
+  }
+  
+  // ========================================================================
+  // LAYER 3: Click Search Button (Header Scoped, Semantic)
+  // ========================================================================
+  console.log(`  [SEARCH] Layer 3: Trying semantic button click...`);
+  try {
+    const buttonClicked = await page.evaluate(() => {
+      // Scope to header first
+      const headerSelectors = ['header', '[role="banner"]', 'nav', '.header', '#header'];
+      let scope: Element | Document = document;
+      
+      for (const sel of headerSelectors) {
+        const header = document.querySelector(sel);
+        if (header) {
+          scope = header;
+          break;
+        }
+      }
+      
+      // Button selectors in priority order
+      const buttonSelectors = [
+        'button[aria-label*="search" i]',
+        'a[aria-label*="search" i]',
+        '[role="button"][aria-label*="search" i]',
+        'button[title*="search" i]',
+        '[data-testid*="search" i]',
+        '[data-action*="search" i]',
+        '.search-icon',
+        '.icon-search',
+        '.search-toggle',
+        'button.search',
+        'a.search'
+      ];
+      
+      // Try header-scoped first
+      for (const selector of buttonSelectors) {
+        const btn = scope.querySelector(selector) as HTMLElement;
+        if (btn && btn.offsetParent !== null) {
+          btn.click();
+          return { clicked: true, selector };
+        }
+      }
+      
+      // Fall back to page-wide
+      if (scope !== document) {
+        for (const selector of buttonSelectors) {
+          const btn = document.querySelector(selector) as HTMLElement;
+          if (btn && btn.offsetParent !== null) {
+            btn.click();
+            return { clicked: true, selector };
+          }
+        }
+      }
+      
+      return { clicked: false, selector: null };
+    });
+    
+    if (buttonClicked.clicked) {
+      console.log(`  [SEARCH] ✓ Layer 3: Clicked button via ${buttonClicked.selector}`);
+      await new Promise(r => setTimeout(r, 800));
+      
+      // Verify search UI opened
+      const state = await verifySearchOpened(page, originalUrl);
+      if (state.inputVisible) {
+        console.log(`  [SEARCH] ✓ Search UI opened, typing query...`);
+        
+        // Find and fill the now-visible input
+        await page.evaluate((q: string) => {
+          const input = document.querySelector('input[type="search"], input[name="q"], input[placeholder*="search" i], [role="searchbox"]') as HTMLInputElement;
+          if (input) {
+            input.focus();
+            input.value = q;
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+          }
+        }, query);
+        
+        await page.keyboard.press('Enter');
+        await new Promise(r => setTimeout(r, 2000));
+        
+        const finalState = await verifySearchOpened(page, originalUrl);
+        if (finalState.urlChanged || finalState.onSearchPage) {
+          return { success: true, method: 'button_click' };
+        }
+      }
+    }
+  } catch (e: any) {
+    console.log(`  [SEARCH] Layer 3 error: ${e.message?.substring(0, 50)}`);
+  }
+  
+  // ========================================================================
+  // LAYER 4: Site-Specific Selectors
+  // ========================================================================
+  const siteConfig = getSiteSelectors(domain);
+  if (siteConfig) {
+    console.log(`  [SEARCH] Layer 4: Trying site-specific selectors for ${domain}...`);
+    try {
+      if (siteConfig.searchButton) {
+        const clicked = await page.evaluate((selector: string) => {
+          const btn = document.querySelector(selector) as HTMLElement;
+          if (btn && btn.offsetParent !== null) {
+            btn.click();
+            return true;
+          }
+          return false;
+        }, siteConfig.searchButton);
+        
+        if (clicked) {
+          console.log(`  [SEARCH] ✓ Clicked site-specific button`);
+          await new Promise(r => setTimeout(r, 800));
+        }
+      }
+      
+      // Try site-specific input
+      if (siteConfig.searchInput) {
+        const filled = await page.evaluate((selector: string, q: string) => {
+          const input = document.querySelector(selector) as HTMLInputElement;
+          if (input) {
+            input.focus();
+            input.value = q;
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            return true;
+          }
+          return false;
+        }, siteConfig.searchInput, query);
+        
+        if (filled) {
+          await page.keyboard.press('Enter');
+          await new Promise(r => setTimeout(r, 2000));
+          
+          const state = await verifySearchOpened(page, originalUrl);
+          if (state.urlChanged || state.onSearchPage) {
+            console.log(`  [SEARCH] ✓ Layer 4 SUCCESS: Site-specific selector worked`);
+            return { success: true, method: 'site_specific' };
+          }
+        }
+      }
+    } catch (e: any) {
+      console.log(`  [SEARCH] Layer 4 error: ${e.message?.substring(0, 50)}`);
+    }
+  }
+  
+  // ========================================================================
+  // LAYER 5: URL Fallback
+  // ========================================================================
+  console.log(`  [SEARCH] Layer 5: Trying direct URL navigation...`);
+  const searchUrlPatterns = [
+    `/search?q=${encodeURIComponent(query)}`,
+    `/search?query=${encodeURIComponent(query)}`,
+    `/search?s=${encodeURIComponent(query)}`,
+    `?q=${encodeURIComponent(query)}`,
+    `/pages/search-results?q=${encodeURIComponent(query)}`
+  ];
+  
+  for (const pattern of searchUrlPatterns) {
+    try {
+      const baseUrl = originalUrl.replace(/\/$/, '');
+      const searchUrl = pattern.startsWith('?') ? `${baseUrl}${pattern}` : `${baseUrl}${pattern}`;
+      console.log(`  [SEARCH] Trying URL: ${searchUrl}`);
+      
+      await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 10000 });
+      await new Promise(r => setTimeout(r, 1500));
+      
+      // Check if we landed on a valid search page (not error/404)
+      const isValidPage = await page.evaluate(() => {
+        const text = document.body?.innerText?.toLowerCase() || '';
+        const isError = text.includes('page not found') || 
+                        text.includes('404') || 
+                        text.includes("this page doesn't exist") ||
+                        text.includes('error');
+        const hasResults = text.includes('result') || 
+                          text.includes('product') || 
+                          text.includes('showing') ||
+                          document.querySelectorAll('[class*="product"]').length > 0;
+        return !isError && (hasResults || text.length > 500);
+      });
+      
+      if (isValidPage) {
+        console.log(`  [SEARCH] ✓ Layer 5 SUCCESS: URL fallback worked`);
+        return { success: true, method: 'url_fallback' };
+      }
+    } catch (e: any) {
+      // Continue to next URL pattern
+    }
+  }
+  
+  // Return to original page for Layer 6
+  try {
+    await page.goto(originalUrl, { waitUntil: 'domcontentloaded', timeout: 10000 });
+    await new Promise(r => setTimeout(r, 1000));
+  } catch {
+    // Ignore
+  }
+  
+  // ========================================================================
+  // LAYER 6: Stagehand AI (Last Resort)
+  // ========================================================================
+  console.log(`  [SEARCH] Layer 6: Using Stagehand AI as last resort...`);
+  try {
+    // Step 1: Open search
+    await actWithTimeout(stagehand,
+      `Click the search icon, magnifying glass, or search button. Look in the header, top right corner, or navigation bar.`,
+      8000
+    );
+    await new Promise(r => setTimeout(r, 1000));
+    
+    // Verify
+    let state = await verifySearchOpened(page, originalUrl);
+    if (!state.inputVisible && !state.urlChanged) {
+      console.log(`  [SEARCH] AI click didn't open search UI`);
+      return { success: false, method: 'none', error: 'Stagehand AI could not find search UI' };
+    }
+    
+    // Step 2: Type query
+    await actWithTimeout(stagehand,
+      `Type "${query}" into the search input field that is currently visible on the page`,
+      8000
+    );
+    await new Promise(r => setTimeout(r, 300));
+    
+    // Step 3: Submit
+    try {
+      await actWithTimeout(stagehand,
+        `Press the Enter key on the keyboard to submit the search`,
+        8000
+      );
+    } catch (e: any) {
+      // Context destroyed means navigation happened - success
+      if (e.message?.includes('Cannot find context') || e.message?.includes('context with specified id')) {
+        console.log(`  [SEARCH] ✓ Page navigated during submit`);
+      }
+    }
+    
+    await new Promise(r => setTimeout(r, 2000));
+    
+    const finalState = await verifySearchOpened(page, originalUrl);
+    if (finalState.urlChanged || finalState.onSearchPage) {
+      console.log(`  [SEARCH] ✓ Layer 6 SUCCESS: Stagehand AI worked`);
+      return { success: true, method: 'stagehand_ai' };
+    }
+    
+  } catch (e: any) {
+    console.log(`  [SEARCH] Layer 6 error: ${e.message?.substring(0, 80)}`);
+  }
+  
+  // All layers failed
+  console.log(`  [SEARCH] ✗ All layers failed - could not execute search`);
+  return { success: false, method: 'none', error: 'All search methods failed' };
+}
+
+// ============================================================================
 // Adaptive Query Generation
 // ============================================================================
 
@@ -797,126 +1264,24 @@ Answer in 2-4 words only. Examples:
       }
       
       // ============================================================
-      // SEARCH - Three steps: OPEN, TYPE, SUBMIT with verification
+      // SEARCH - Layered JS-first approach with Stagehand fallback
       // ============================================================
-      console.log(`  [AI] Executing search for: "${query}"`);
       
       // Store URL before search to verify navigation
       const urlBeforeSearch = page.url();
-      let searchSucceeded = false;
       
-      try {
-        // Step 1: Click to open search (icon, button, or input)
-        console.log(`  [AI] Step 1: Opening search...`);
-        await actWithTimeout(stagehand,
-          `Click the search icon, magnifying glass, or search button. Look in the header, top right corner, or navigation bar.`,
-          8000
-        );
-        
-        // Wait for search interface to appear
-        await new Promise(r => setTimeout(r, 1000));
-        
-        // Step 2: Type into the NOW VISIBLE search input
-        console.log(`  [AI] Step 2: Typing query into search input...`);
-        await actWithTimeout(stagehand,
-          `Type "${query}" into the search input field that is currently visible on the page`,
-          8000
-        );
-        
-        await new Promise(r => setTimeout(r, 300));
-        
-        // Step 3: Submit the search by pressing Enter
-        console.log(`  [AI] Step 3: Submitting search...`);
-        try {
-          await actWithTimeout(stagehand,
-            `Press the Enter key on the keyboard to submit the search and navigate to results`,
-            8000
-          );
-        } catch (submitError: any) {
-          // "Cannot find context" error means the page navigated - this is SUCCESS!
-          if (submitError.message?.includes('Cannot find context') || 
-              submitError.message?.includes('context with specified id')) {
-            console.log(`  [AI] ✓ Page navigated (context destroyed) - search likely succeeded`);
-          } else if (submitError.message?.includes('timeout')) {
-            console.log(`  [AI] Submit timed out, checking if page navigated...`);
-          } else {
-            console.log(`  [AI] Submit error (will verify URL): ${submitError.message?.substring(0, 60)}`);
-          }
-        }
-        
-        // Wait for results page to load
-        await new Promise(r => setTimeout(r, 2000));
-        
-        // Get fresh page reference after potential navigation
-        const pages = stagehand.context.pages();
-        const currentPage = pages[pages.length - 1] || page;
-        
-        // Verify URL has changed (indicates navigation to results page)
-        const urlAfterSearch = currentPage.url();
-        console.log(`  [AI] URL before: ${urlBeforeSearch}`);
-        console.log(`  [AI] URL after: ${urlAfterSearch}`);
-        
-        if (urlAfterSearch !== urlBeforeSearch) {
-          console.log(`  [AI] ✓ URL changed - search navigated to results`);
-          searchSucceeded = true;
-        } else {
-          console.log(`  [AI] ⚠ URL unchanged - trying click submit button...`);
-          
-          // Try clicking a submit button instead
-          try {
-            await actWithTimeout(stagehand,
-              `Click the search submit button or magnifying glass icon to submit the search`,
-              5000
-            );
-            await new Promise(r => setTimeout(r, 1500));
-            
-            const urlAfterRetry = currentPage.url();
-            if (urlAfterRetry !== urlBeforeSearch) {
-              console.log(`  [AI] ✓ Click submit worked - navigated to results`);
-              searchSucceeded = true;
-            }
-          } catch {
-            // Continue to fallback
-          }
-        }
-        
-        // Fallback: Direct URL navigation if still on homepage
-        if (!searchSucceeded) {
-          console.log(`  [AI] ⚠ Trying direct URL navigation as fallback...`);
-          const encodedQuery = encodeURIComponent(query);
-          // FIX: Ensure proper slash between domain and "search"
-          const baseUrl = url.endsWith('/') ? url : url + '/';
-          const searchUrl = `${baseUrl}search?q=${encodedQuery}`;
-          console.log(`  [AI] Fallback URL: ${searchUrl}`);
-          try {
-            await currentPage.goto(searchUrl, { waitUntil: 'domcontentloaded' });
-            await new Promise(r => setTimeout(r, 1500));
-            
-            const urlAfterFallback = currentPage.url();
-            if (urlAfterFallback.includes('search')) {
-              console.log(`  [AI] ✓ Direct URL fallback succeeded`);
-              searchSucceeded = true;
-            }
-          } catch {
-            console.log(`  [AI] ⚠ Direct URL fallback failed`);
-          }
-        }
-        
-        // Final verification - check for results on page
-        const hasResults = await currentPage.evaluate(() => {
-          const text = document.body.innerText.toLowerCase();
-          return text.includes('result') || text.includes('product') || 
-                 text.includes('showing') || text.includes('found') ||
-                 document.querySelectorAll('[class*="product"], .product-card, .product-grid').length > 0;
-        });
-        
-        const verifiedUrl = currentPage.url();
-        console.log(`  [AI] Final URL: ${verifiedUrl}`);
-        console.log(`  [AI] Has results indicators: ${hasResults}`);
-        console.log(`  [AI] Search succeeded: ${searchSucceeded}`);
-        
-      } catch (e: any) {
-        console.log(`  [AI] Search failed: ${e.message?.substring(0, 80)}`);
+      // Execute search using layered fallback approach
+      const searchResult = await executeSearchWithFallbacks(
+        page,
+        stagehand,
+        query,
+        domain,
+        url
+      );
+      
+      console.log(`  [AI] Search result: ${searchResult.success ? '✓ SUCCESS' : '✗ FAILED'} via ${searchResult.method}`);
+      if (searchResult.error) {
+        console.log(`  [AI] Error: ${searchResult.error}`);
       }
       
       // Get the current page after potential navigation (page context may have changed)
@@ -925,9 +1290,10 @@ Answer in 2-4 words only. Examples:
       
       // Check if we're still on homepage (search navigation failed)
       const finalUrl = activePage.url();
-      const stillOnHomepage = finalUrl === urlBeforeSearch || 
+      const stillOnHomepage = !searchResult.success && (
+                              finalUrl === urlBeforeSearch || 
                               finalUrl === url || 
-                              (finalUrl.replace(/\/$/, '') === url.replace(/\/$/, ''));
+                              (finalUrl.replace(/\/$/, '') === url.replace(/\/$/, '')));
       
       if (stillOnHomepage) {
         console.log(`  [AI] ⚠ STILL ON HOMEPAGE - Search navigation completely failed`);
