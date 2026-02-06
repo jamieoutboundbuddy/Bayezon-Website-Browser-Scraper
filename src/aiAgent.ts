@@ -173,7 +173,7 @@ async function dismissPopups(stagehand: Stagehand, page: any): Promise<void> {
         'continue without', 'no discount', 'i\'ll pass'
       ];
       
-      const allButtons = document.querySelectorAll('button, [role="button"], a[href="#"]');
+      const allButtons = Array.from(document.querySelectorAll('button, [role="button"], a[href="#"]'));
       for (const btn of allButtons) {
         const el = btn as HTMLElement;
         const text = el.innerText?.toLowerCase().trim();
@@ -249,14 +249,14 @@ async function dismissPopups(stagehand: Stagehand, page: any): Promise<void> {
       // ============================================================
       // STEP 4: Find X icons (SVG) inside modal overlays
       // ============================================================
-      const modalContainers = document.querySelectorAll(
+      const modalContainers = Array.from(document.querySelectorAll(
         '[class*="modal"], [class*="Modal"], [class*="popup"], [class*="Popup"], ' +
         '[class*="overlay"], [class*="Overlay"], [role="dialog"], [aria-modal="true"]'
-      );
+      ));
       
       for (const modal of modalContainers) {
         // Look for buttons containing SVG (likely X icons)
-        const buttons = modal.querySelectorAll('button');
+        const buttons = Array.from(modal.querySelectorAll('button'));
         for (const btn of buttons) {
           const el = btn as HTMLElement;
           // Check if button contains an SVG and is in top area of modal (close buttons usually are)
@@ -285,7 +285,7 @@ async function dismissPopups(stagehand: Stagehand, page: any): Promise<void> {
       // Check for additional popups (sometimes there are multiple)
       await page.evaluate(() => {
         const dismissTexts = ['no, thanks', 'no thanks', 'decline', 'close', 'ok', 'accept'];
-        const buttons = document.querySelectorAll('button, [role="button"]');
+        const buttons = Array.from(document.querySelectorAll('button, [role="button"]'));
         for (const btn of buttons) {
           const el = btn as HTMLElement;
           const text = el.innerText?.toLowerCase().trim();
