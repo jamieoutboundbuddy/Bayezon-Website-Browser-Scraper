@@ -995,8 +995,9 @@ Return JSON:
 }`;
 
   try {
+    // Use gpt-4o-mini for vision (gpt-4.1-mini doesn't support images)
     const response = await openai.chat.completions.create({
-      model: 'gpt-4.1-mini',
+      model: 'gpt-4o-mini',
       messages: [
         {
           role: 'user',
@@ -1017,22 +1018,33 @@ Return JSON:
     });
     
     const content = response.choices[0]?.message?.content || '';
+    console.log(`  [AI] Evaluation raw response (first 200 chars): ${content.substring(0, 200)}`);
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     
     if (jsonMatch) {
-      const data = JSON.parse(jsonMatch[0]);
-      return {
-        isSignificantFailure: data.significant_failure === true,
-        resultCount: data.result_count ?? null,
-        relevantResultCount: data.relevant_result_count ?? 0,
-        firstRelevantPosition: data.first_relevant_position ?? null,
-        productsFound: data.products_shown ?? [],
-        reasoning: data.reasoning ?? 'No reasoning provided'
-      };
+      try {
+        const data = JSON.parse(jsonMatch[0]);
+        console.log(`  [AI] Evaluation parsed successfully`);
+        return {
+          isSignificantFailure: data.significant_failure === true,
+          resultCount: data.result_count ?? null,
+          relevantResultCount: data.relevant_result_count ?? 0,
+          firstRelevantPosition: data.first_relevant_position ?? null,
+          productsFound: data.products_shown ?? [],
+          reasoning: data.reasoning ?? 'No reasoning provided'
+        };
+      } catch (parseError: any) {
+        console.error(`  [AI] JSON parse error: ${parseError.message}`);
+        console.error(`  [AI] Raw JSON attempted: ${jsonMatch[0].substring(0, 200)}`);
+      }
+    } else {
+      console.error(`  [AI] No JSON found in response`);
     }
   } catch (e: any) {
-    console.error(`  [AI] Evaluation failed: ${e.message}`);
+    console.error(`  [AI] Evaluation failed with gpt-4.1-mini: ${e.message}`);
+    console.error(`  [AI] Full error:`, e);
     // If we can't evaluate, try with gpt-4o as fallback
+    console.log(`  [AI] Trying fallback with gpt-4o...`);
     try {
       const fallbackResponse = await openai.chat.completions.create({
         model: 'gpt-4o',
