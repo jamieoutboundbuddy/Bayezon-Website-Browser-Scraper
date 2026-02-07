@@ -844,63 +844,63 @@ async function generateNextQuery(
     let searchStrategy = '';
 
     if (attempt === 1) {
-      // THE SOLVER: Problem/context-based queries
-      searchStrategy = `ATTEMPT 1 (THE SOLVER - Problem/Context):
-Generate a search query from someone with a SPECIFIC PROBLEM or CONTEXT they need to solve.
+      // THE SOLVER: Context/Problem/Occasion based
+      // GOAL: Find a "Hook" query where basic search might fail but AI search succeeds
+      searchStrategy = `ATTEMPT 1 (THE SOLVER - Context/Occasion):
+Generate a search query based on a specific CONTEXT, OCCASION, or PROBLEM.
+The intent should be clear to a human, but might be tricky for a basic keyword search.
 
-Think: health issues, life events, physical limitations, specific use cases
+GOOD EXAMPLES (Hyper-Realistic Hooks):
+- "outfit for bloating" (Problem solving)
+- "swimsuit for hip dips" (Body concern)
+- "rug safe for crawling baby" (Safety context)
+- "sweat proof gym set" (Performance need)
+- "bra that doesnt show through tshirts" (Specific constraint)
+- "sheets specifically for hot sleepers" (Benefit)
 
-GOOD EXAMPLES:
-- "shoes for plantar fasciitis and overpronation"
-- "mattress for lower back pain relief"
-- "gear for backpacking europe two weeks carry-on only"
-- "makeup routine for mature skin large pores"
-- "small apartment dining table folds away"
+BAD EXAMPLES:
+- "shoes for plantar fasciitis" (Too medical/niche)
+- "comfortable clothes" (Too generic)
+- "items for problem" (Robot speak)
 
-BAD EXAMPLES (too generic):
-- "comfortable shoes"
-- "good mattress"
-- "travel gear"
-
-The query should describe a REAL PROBLEM or SPECIFIC CONTEXT, not just preferences.`;
+The query should sound like a REAL person typing their specific need/context into the search bar.`;
     } else if (attempt === 2) {
-      // THE HUNTER: Multi-attribute specific queries
-      searchStrategy = `ATTEMPT 2 (THE HUNTER - Multi-Attribute Specific):
-Generate a search query from someone who knows EXACTLY what features/attributes they want. Think product expert.
+      // THE CONVERSATIONAL: Vibe/Implied Need
+      searchStrategy = `ATTEMPT 2 (THE CONVERSATIONAL - Vibe/Implied Need):
+Generate a search query that describes a VIBE, MOOD, or IMPLIED NEED.
+Short, punchy, and natural.
 
-They want multiple specific attributes combined (materials, features, sizes, properties).
+GOOD EXAMPLES (Hyper-Realistic Hooks):
+- "heels i can dance in" (Implies comfort + stability + party style)
+- "baddie birthday outfit" (Implies specific trendy style)
+- "shoes for disney world" (Implies walking 20k steps/comfort)
+- "outfit for first date" (Implies attractive but not trying too hard)
+- "gift for someone who has everything" (Implies unique/novelty)
 
-GOOD EXAMPLES:
-- "lightweight trail running shoes gore-tex wide fit"
-- "retinol serum sensitive skin fragrance free"
-- "velvet sectional under 1000 pet-friendly fabric"
-- "modal boxer briefs long inseam moisture wicking"
-- "zero degree down sleeping bag ultralight under 2 lbs"
+BAD EXAMPLES:
+- "comfortable heels" (Too basic)
+- "party clothes" (Too generic)
+- "stylish shoes" (Subjective but weak)
 
-BAD EXAMPLES (not specific enough):
-- "running shoes"
-- "serum"
-- "sectional"
-
-The query should have 3+ specific attributes/features combined.`;
+The query should imply a set of product features (e.g. "dance in" = block heel/straps) without listing them.`;
     } else if (attempt === 3) {
-      // THE CONVERSATIONAL: Natural language, vague intent
-      searchStrategy = `ATTEMPT 3 (THE CONVERSATIONAL - Natural Language):
-Generate a search query as a QUESTION or STATEMENT in natural, conversational language. Vague intent, like asking a friend.
+      // THE HUNTER: Specific but Human
+      searchStrategy = `ATTEMPT 3 (THE HUNTER - Specific but Human):
+Generate a search query for a specific type of item, but phrased naturally.
+Avoid keyword stuffing. Use the words real people use.
 
-GOOD EXAMPLES:
-- "what should I wear for marathon training"
-- "help me look awake after no sleep"
-- "make my living room look bigger"
-- "my dog won't stop scratching"
-- "which mattress if my partner is heavier than me"
+GOOD EXAMPLES (Hyper-Realistic Hooks):
+- "gold hoop earrings heavy duty" (Specific trait)
+- "black work pants stretchy" (Category + Benefit)
+- "white sneakers easy to clean" (Category + Maintenance)
+- "running gear for 40 degree weather" (Contextual specificity)
+- "makeup for dry skin" (Skin type constraint)
 
-BAD EXAMPLES (not conversational):
-- "marathon running clothes"
-- "concealer"
-- "space-saving furniture"
+BAD EXAMPLES:
+- "premium genuine leather ankle boots waterproof" (Keyword stuffing)
+- "women's footwear black size 9" (Robot speak)
 
-The query should be a QUESTION or casual statement, like talking to a person.`;
+The query should be specific but sound like a text message, not a catalog entry.`;
     }
 
     return `You are generating a REALISTIC search query to test an e-commerce site: ${brandSummary}
@@ -909,9 +909,10 @@ ${searchStrategy}
 
 CRITICAL RULES:
 - Sound like a REAL human customer searching (not a product catalog)
-- Keep it under 10 words
+- Keep it under 10 words (usually 3-6 words is best)
 - Use natural language people actually type
-- No marketing speak or technical jargon
+- NO medical terms unless relevant to brand
+- ADAPT TO THE BRAND: If searching a high-fashion site, search for 'club heels' not 'orthopedic shoes'.
 
 Output: Just the search query itself. One line. No explanation.`;
   };
@@ -923,7 +924,7 @@ Output: Just the search query itself. One line. No explanation.`;
       model: 'gpt-4o-mini',
       messages: [{ role: 'user', content: prompt }],
       max_completion_tokens: 150,
-      temperature: 0  // gpt-4o-mini supports temperature parameter
+      temperature: 0.7  // Increased to 0.7 for natural variation
     });
 
     const content = response.choices[0]?.message?.content || '';
@@ -974,46 +975,27 @@ async function evaluateSearchResults(
   screenshotBase64: string
 ): Promise<EvaluationResult> {
 
-  const prompt = `Evaluate if this e-commerce search returned RELEVANT products for the query.
+  const prompt = `You are an expert at evaluating search results with STRICT adherence to user intent.
 
-QUERY: "${query}"
+    Query: "${query}"
 
-CRITICAL CHECKS - These are ALWAYS SIGNIFICANT FAILURES:
-1. Page shows a STORE LOCATOR MAP instead of products (e.g., location picker, store finder)
-2. Page shows "No Results" / "0 Results" / empty product grid
-3. Page shows a different section (checkout, account login, homepage redirect)
-4. Results are ONLY BLOG POSTS/GUIDES/ARTICLES (no products at all)
-5. Page redirected to error page or wrong category
 
-INTENT MATCHING:
-- A query asking for "comfortable shoes" is SATISFIED by shoe products described as comfortable
-- A query asking for "hiking boots" is FAILED by generic dress shoes or location maps
-- A query asking for "wide fit running shoes" is SATISFIED by any running shoe labeled as wide fit
-- A query asking for "moisturiser without fragrance" is SATISFIED by fragrance-free moisturiser products
+Your Goal: Determine if the search results TRULY solve the user's specific problem.
+  CRITICAL: Many search engines return "keyword matches" that are functionally useless(False Positives).You must catch these.
 
-PASS CONDITIONS (at least ONE of these):
-- ANY products genuinely match the query intent (even if only 1 in the results)
-- Results exist and are on-topic, even if buried deep (position 10+)
-- Mixed results with at least some relevant products
+Rules for Relevance:
+    1. STRICT MATCHING: If the user asks for "heels i can dance in", a 5 - inch stiletto is NOT relevant, even if it is a "heel".It must look stable / comfortable.
+2. CONTEXT MATTERS: "Rug that hides dirt" means patterned / dark / washable.A plain white rug is a FAILURE, even if it is a "rug".
+3. DETECT FAILURE: If the results are just generic matches that ignore the specific constraint(e.g. "dance in", "hides dirt", "birthday outfit"), mark them as IRRELEVANT.
 
-RELEVANCE EXAMPLES:
-✅ Query "running shoes for wide feet" → Products labeled as "wide fit" = PASS
-✅ Query "waterproof hiking boots" → Mix with 1-2 waterproof boots = PASS
-✅ Query "comfortable everyday shoes" → Mix including comfortable labeled shoes = PASS
-❌ Query "hiking shoes" → Only dress shoes = FAIL
-❌ Query "products" → Store locator map = FAIL
-❌ Query "wireless headphones" → 0 results / map = FAIL
-
-Return JSON:
-{
-  "significant_failure": true/false,
-  "result_count": number or null,
-  "relevant_result_count": number (how many results actually match intent),
-  "first_relevant_position": number or null (1-indexed position of first relevant product),
-  "result_type": "products" | "articles" | "map_locator" | "mixed" | "none" | "error",
-  "products_shown": ["product 1", "product 2", ...],
-  "reasoning": "Clear explanation of why this is pass/fail. If failure, note what was shown instead (map, articles, no results, etc)"
-}`;
+Return a JSON object with:
+  - relevant_result_count: (number) Count of results that actually meet the SPECIFIC intent.
+- top_match: (string) Title of the best match(or "None").
+- significant_failure: (boolean) Set to TRUE if the search engine failed to understand the nuance(returned keyword matches that are wrong).
+- result_count: (number) Total results found.
+- first_relevant_position: (number or null) Position of first good result.
+- products_shown: (string[]) List of product titles.
+- reasoning: (string) Explain strictly why it passed or failed.E.g. "Results were just generic heels, not suitable for dancing."`;
 
   try {
     // Use gpt-5-mini for vision evaluation (better reasoning, supports images)
@@ -1027,7 +1009,7 @@ Return JSON:
             {
               type: 'image_url',
               image_url: {
-                url: `data:image/png;base64,${screenshotBase64}`,
+                url: `data: image / png; base64, ${screenshotBase64} `,
                 detail: 'low'
               }
             }
@@ -1039,7 +1021,7 @@ Return JSON:
     });
 
     const content = response.choices[0]?.message?.content || '';
-    console.log(`  [AI] Evaluation raw response (first 200 chars): ${content.substring(0, 200)}`);
+    console.log(`  [AI] Evaluation raw response(first 200 chars): ${content.substring(0, 200)} `);
     const jsonMatch = content.match(/\{[\s\S]*\}/);
 
     if (jsonMatch) {
@@ -1055,17 +1037,17 @@ Return JSON:
           reasoning: data.reasoning ?? 'No reasoning provided'
         };
       } catch (parseError: any) {
-        console.error(`  [AI] JSON parse error: ${parseError.message}`);
-        console.error(`  [AI] Raw JSON attempted: ${jsonMatch[0].substring(0, 200)}`);
+        console.error(`  [AI] JSON parse error: ${parseError.message} `);
+        console.error(`  [AI] Raw JSON attempted: ${jsonMatch[0].substring(0, 200)} `);
       }
     } else {
       console.error(`  [AI] No JSON found in response`);
     }
   } catch (e: any) {
-    console.error(`  [AI] Evaluation failed with gpt-4.1-mini: ${e.message}`);
-    console.error(`  [AI] Full error:`, e);
+    console.error(`  [AI] Evaluation failed with gpt - 4.1 - mini: ${e.message} `);
+    console.error(`  [AI] Full error: `, e);
     // If we can't evaluate, try with gpt-4o as fallback
-    console.log(`  [AI] Trying fallback with gpt-4o...`);
+    console.log(`  [AI] Trying fallback with gpt - 4o...`);
     try {
       const fallbackResponse = await openai.chat.completions.create({
         model: 'gpt-4o',
@@ -1077,7 +1059,7 @@ Return JSON:
               {
                 type: 'image_url',
                 image_url: {
-                  url: `data:image/png;base64,${screenshotBase64}`,
+                  url: `data: image / png; base64, ${screenshotBase64} `,
                   detail: 'low'
                 }
               }
@@ -1155,7 +1137,7 @@ export async function aiFullAnalysis(
   const startTime = Date.now();
 
   console.log(`\n[ADVERSARIAL] ========================================`);
-  console.log(`[ADVERSARIAL] Starting adversarial analysis for: ${domain}`);
+  console.log(`[ADVERSARIAL] Starting adversarial analysis for: ${domain} `);
   console.log(`[ADVERSARIAL] Max ${MAX_ATTEMPTS} queries, stop on significant failure`);
   console.log(`[ADVERSARIAL] ========================================\n`);
 
@@ -1488,15 +1470,19 @@ Return JSON:
         }
       }
 
-      // Check for significant failure - STOP if found
+      // Check for significant failure - Record it but CONTINUE to test other personas
       if (evaluation.isSignificantFailure) {
         console.log(`\n  [AI] ✗ SIGNIFICANT FAILURE FOUND!`);
-        console.log(`  [AI] Proof query: "${query}"`);
-        proofQuery = query;
-        failedOnAttempt = attempt;
-        failureScreenshotPath = resultsScreenshotPath;
-        failureReasoning = evaluation.reasoning;
-        break;
+        console.log(`  [AI] Proof query candidate: "${query}"`);
+
+        // If this is the first failure, record it as the primary proof
+        if (!proofQuery) {
+          proofQuery = query;
+          failedOnAttempt = attempt;
+          failureScreenshotPath = resultsScreenshotPath;
+          failureReasoning = evaluation.reasoning;
+        }
+        // Continue to test other personas to get full picture
       }
 
       console.log(`  [AI] ✓ Query passed, trying harder...`);
