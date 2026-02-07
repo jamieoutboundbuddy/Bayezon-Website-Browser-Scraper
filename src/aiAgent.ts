@@ -114,13 +114,13 @@ function getArtifactPath(jobId: string, domain: string, stage: string, ext: 'png
 async function createStagehandSession(): Promise<Stagehand> {
   const apiKey = process.env.BROWSERBASE_API_KEY;
   const projectId = process.env.BROWSERBASE_PROJECT_ID;
-  
+
   if (!apiKey || !projectId) {
     throw new Error('BROWSERBASE_API_KEY and BROWSERBASE_PROJECT_ID must be set');
   }
 
   console.log('  [AI] Creating Stagehand session...');
-  
+
   const stagehand = new Stagehand({
     env: 'BROWSERBASE',
     apiKey,
@@ -130,7 +130,7 @@ async function createStagehandSession(): Promise<Stagehand> {
 
   await stagehand.init();
   console.log('  [AI] ✓ Stagehand session ready');
-  
+
   return stagehand;
 }
 
@@ -139,12 +139,12 @@ async function createStagehandSession(): Promise<Stagehand> {
 // ============================================================================
 
 async function actWithTimeout(
-  stagehand: Stagehand, 
-  instruction: string, 
+  stagehand: Stagehand,
+  instruction: string,
   timeoutMs = 10000
 ): Promise<void> {
   const actionPromise = stagehand.act(instruction);
-  const timeoutPromise = new Promise<never>((_, reject) => 
+  const timeoutPromise = new Promise<never>((_, reject) =>
     setTimeout(() => reject(new Error(`Action timeout after ${timeoutMs}ms: ${instruction.substring(0, 50)}...`)), timeoutMs)
   );
   await Promise.race([actionPromise, timeoutPromise]);
@@ -156,20 +156,20 @@ async function actWithTimeout(
 
 async function dismissPopups(stagehand: Stagehand, page: any): Promise<void> {
   console.log('  [AI] Popup dismissal starting...');
-  
-  // CRITICAL: Wait for delayed popups to appear (Steve Madden shows after ~2s)
-  await new Promise(r => setTimeout(r, 2000));
-  
+
+  // CRITICAL: Wait for delayed popups to appear (Steve Madden shows after ~2-3s)
+  await new Promise(r => setTimeout(r, 3500));
+
   // Helper to check if element is truly visible
   const isElementVisible = (el: HTMLElement): boolean => {
     const style = window.getComputedStyle(el);
-    return style.display !== 'none' && 
-           style.visibility !== 'hidden' && 
-           style.opacity !== '0' &&
-           el.offsetWidth > 0 && 
-           el.offsetHeight > 0;
+    return style.display !== 'none' &&
+      style.visibility !== 'hidden' &&
+      style.opacity !== '0' &&
+      el.offsetWidth > 0 &&
+      el.offsetHeight > 0;
   };
-  
+
   // Try up to 3 times (some popups have animations or multiple layers)
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
@@ -177,19 +177,19 @@ async function dismissPopups(stagehand: Stagehand, page: any): Promise<void> {
         // Helper function for visibility (defined inside evaluate)
         const checkVisible = (el: HTMLElement): boolean => {
           const style = window.getComputedStyle(el);
-          return style.display !== 'none' && 
-                 style.visibility !== 'hidden' && 
-                 style.opacity !== '0' &&
-                 el.offsetWidth > 0 && 
-                 el.offsetHeight > 0;
+          return style.display !== 'none' &&
+            style.visibility !== 'hidden' &&
+            style.opacity !== '0' &&
+            el.offsetWidth > 0 &&
+            el.offsetHeight > 0;
         };
-        
+
         // ============================================================
         // STEP 1: Press Escape key first (universal dismiss)
         // ============================================================
         document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
         document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-        
+
         // ============================================================
         // STEP 2: Find dismiss buttons by TEXT content
         // ============================================================
@@ -200,16 +200,16 @@ async function dismissPopups(stagehand: Stagehand, page: any): Promise<void> {
           'continue without', 'no discount', "i'll pass", 'x',
           'continue shopping', 'no thanks, i prefer full price'
         ];
-        
+
         // Check ALL clickable elements, not just buttons
         const clickables = Array.from(document.querySelectorAll(
           'button, [role="button"], a, span[onclick], div[onclick], [tabindex="0"], [data-dismiss]'
         ));
-        
+
         for (const el of clickables) {
           const element = el as HTMLElement;
           const text = element.innerText?.toLowerCase().trim().replace(/\s+/g, ' ');
-          
+
           if (text && checkVisible(element)) {
             for (const dismissText of dismissTexts) {
               if (text === dismissText || text.includes(dismissText)) {
@@ -220,7 +220,7 @@ async function dismissPopups(stagehand: Stagehand, page: any): Promise<void> {
             }
           }
         }
-        
+
         // ============================================================
         // STEP 3: Cookie consent banners
         // ============================================================
@@ -231,7 +231,7 @@ async function dismissPopups(stagehand: Stagehand, page: any): Promise<void> {
           '[class*="consent"] button[class*="accept"]',
           '[class*="gdpr"] button',
         ];
-        
+
         for (const selector of cookieSelectors) {
           try {
             const el = document.querySelector(selector) as HTMLElement;
@@ -242,7 +242,7 @@ async function dismissPopups(stagehand: Stagehand, page: any): Promise<void> {
             }
           } catch { /* ignore */ }
         }
-        
+
         // ============================================================
         // STEP 4: Modal X/Close buttons by aria-label or class
         // ============================================================
@@ -259,12 +259,20 @@ async function dismissPopups(stagehand: Stagehand, page: any): Promise<void> {
           '[data-dismiss="modal"]',
           '[data-testid="close-button"]',
           '[data-testid="modal-close"]',
+          // Specific X button patterns
+          'button[aria-label*="lose"]', // Catches "Close"
+          'button[title*="lose"]',
+          'button[title*="Close"]',
+          'a[aria-label*="lose"]',
           // Site-specific selectors
           '.modal__close',
           '.popup__close',
           '.dialog__close',
+          // Steve Madden specific
+          '[class*="klaviyo"] button[aria-label]',
+          '[class*="klaviyo"] [aria-label*="lose"]',
         ];
-        
+
         for (const selector of closeSelectors) {
           try {
             const el = document.querySelector(selector) as HTMLElement;
@@ -275,7 +283,7 @@ async function dismissPopups(stagehand: Stagehand, page: any): Promise<void> {
             }
           } catch { /* ignore */ }
         }
-        
+
         // ============================================================
         // STEP 5: Find X icons (SVG) inside modal overlays
         // ============================================================
@@ -283,11 +291,11 @@ async function dismissPopups(stagehand: Stagehand, page: any): Promise<void> {
           '[class*="modal"], [class*="Modal"], [class*="popup"], [class*="Popup"], ' +
           '[class*="overlay"], [class*="Overlay"], [role="dialog"], [aria-modal="true"]'
         ));
-        
+
         for (const modal of modalContainers) {
           const modalEl = modal as HTMLElement;
           if (!checkVisible(modalEl)) continue;
-          
+
           // Look for buttons containing SVG (likely X icons)
           const buttons = Array.from(modal.querySelectorAll('button, [role="button"]'));
           for (const btn of buttons) {
@@ -306,7 +314,7 @@ async function dismissPopups(stagehand: Stagehand, page: any): Promise<void> {
             }
           }
         }
-        
+
         // ============================================================
         // STEP 6: Click overlay backdrop (dismiss by clicking outside)
         // ============================================================
@@ -321,10 +329,10 @@ async function dismissPopups(stagehand: Stagehand, page: any): Promise<void> {
             return true;
           }
         }
-        
+
         return false;
       });
-      
+
       if (dismissed) {
         console.log(`  [AI] ✓ Popup dismissed (attempt ${attempt + 1})`);
         await new Promise(r => setTimeout(r, 500)); // Let animation complete
@@ -338,7 +346,7 @@ async function dismissPopups(stagehand: Stagehand, page: any): Promise<void> {
       break;
     }
   }
-  
+
   // Final Escape key press via Playwright (more reliable)
   try {
     await page.keyboard.press('Escape');
@@ -359,13 +367,13 @@ interface SearchState {
 
 async function verifySearchOpened(page: any, originalUrl: string): Promise<SearchState> {
   const currentUrl = page.url();
-  const urlChanged = currentUrl !== originalUrl && 
-                     currentUrl.replace(/\/$/, '') !== originalUrl.replace(/\/$/, '');
-  const onSearchPage = currentUrl.includes('/search') || 
-                       currentUrl.includes('?q=') || 
-                       currentUrl.includes('?query=') ||
-                       currentUrl.includes('?s=');
-  
+  const urlChanged = currentUrl !== originalUrl &&
+    currentUrl.replace(/\/$/, '') !== originalUrl.replace(/\/$/, '');
+  const onSearchPage = currentUrl.includes('/search') ||
+    currentUrl.includes('?q=') ||
+    currentUrl.includes('?query=') ||
+    currentUrl.includes('?s=');
+
   // Check for visible search input
   const inputCheck = await page.evaluate(() => {
     const selectors = [
@@ -378,21 +386,21 @@ async function verifySearchOpened(page: any, originalUrl: string): Promise<Searc
       'input[aria-label*="search" i]',
       '[role="searchbox"]'
     ];
-    
+
     for (const selector of selectors) {
       const input = document.querySelector(selector) as HTMLInputElement;
       if (input) {
         const rect = input.getBoundingClientRect();
-        const isVisible = rect.width > 0 && rect.height > 0 && 
-                          input.offsetParent !== null &&
-                          getComputedStyle(input).visibility !== 'hidden' &&
-                          getComputedStyle(input).display !== 'none';
+        const isVisible = rect.width > 0 && rect.height > 0 &&
+          input.offsetParent !== null &&
+          getComputedStyle(input).visibility !== 'hidden' &&
+          getComputedStyle(input).display !== 'none';
         return { found: true, visible: isVisible };
       }
     }
     return { found: false, visible: false };
   });
-  
+
   return {
     inputFound: inputCheck.found,
     inputVisible: inputCheck.visible,
@@ -406,11 +414,11 @@ async function verifySearchOpened(page: any, originalUrl: string): Promise<Searc
 // ============================================================================
 
 const SITE_SELECTORS: Record<string, { searchButton?: string; searchInput?: string }> = {
-  'stevemadden.com': { 
+  'stevemadden.com': {
     searchButton: 'button.header__icon--search, [data-action="toggle-search"]',
     searchInput: 'input[name="q"]'
   },
-  'allbirds.com': { 
+  'allbirds.com': {
     searchButton: '[data-testid="search-button"], button[aria-label*="search" i]',
     searchInput: 'input[type="search"]'
   },
@@ -456,7 +464,7 @@ async function executeSearchWithFallbacks(
   originalUrl: string
 ): Promise<SearchExecutionResult> {
   console.log(`  [SEARCH] Starting layered search for: "${query}"`);
-  
+
   // ========================================================================
   // LAYER 1: Direct Input Focus (Header Scoped)
   // ========================================================================
@@ -466,7 +474,7 @@ async function executeSearchWithFallbacks(
       // First, try to scope to header/nav
       const headerSelectors = ['header', '[role="banner"]', 'nav', '.header', '#header'];
       let scope: Element | Document = document;
-      
+
       for (const sel of headerSelectors) {
         const header = document.querySelector(sel);
         if (header) {
@@ -474,7 +482,7 @@ async function executeSearchWithFallbacks(
           break;
         }
       }
-      
+
       // Search input selectors in priority order
       const inputSelectors = [
         'input[type="search"]',
@@ -485,7 +493,7 @@ async function executeSearchWithFallbacks(
         'input[placeholder*="search" i]',
         'input[aria-label*="search" i]'
       ];
-      
+
       // Try header-scoped first
       for (const selector of inputSelectors) {
         const input = scope.querySelector(selector) as HTMLInputElement;
@@ -496,7 +504,7 @@ async function executeSearchWithFallbacks(
           return { found: true, selector };
         }
       }
-      
+
       // Fall back to page-wide if not in header
       if (scope !== document) {
         for (const selector of inputSelectors) {
@@ -509,17 +517,17 @@ async function executeSearchWithFallbacks(
           }
         }
       }
-      
+
       return { found: false, selector: null };
     }, query);
-    
+
     if (inputFocused.found) {
       console.log(`  [SEARCH] ✓ Layer 1 SUCCESS: Found input via ${inputFocused.selector}`);
-      
+
       // Submit the search
       await page.keyboard.press('Enter');
       await new Promise(r => setTimeout(r, 2000));
-      
+
       const state = await verifySearchOpened(page, originalUrl);
       if (state.urlChanged || state.onSearchPage) {
         console.log(`  [SEARCH] ✓ Search submitted successfully`);
@@ -529,7 +537,7 @@ async function executeSearchWithFallbacks(
   } catch (e: any) {
     console.log(`  [SEARCH] Layer 1 error: ${e.message?.substring(0, 50)}`);
   }
-  
+
   // ========================================================================
   // LAYER 2: Keyboard Shortcuts
   // ========================================================================
@@ -539,22 +547,22 @@ async function executeSearchWithFallbacks(
     { key: 'Control+k', name: 'Ctrl+K' },
     { key: 'Meta+k', name: 'Cmd+K' }
   ];
-  
+
   for (const shortcut of shortcuts) {
     try {
       await page.keyboard.press(shortcut.key);
-  await new Promise(r => setTimeout(r, 500));
-      
+      await new Promise(r => setTimeout(r, 500));
+
       const state = await verifySearchOpened(page, originalUrl);
       if (state.inputVisible) {
         console.log(`  [SEARCH] ✓ Layer 2 SUCCESS: ${shortcut.name} opened search`);
-        
+
         // Type and submit
         await page.keyboard.type(query);
         await new Promise(r => setTimeout(r, 300));
         await page.keyboard.press('Enter');
         await new Promise(r => setTimeout(r, 2000));
-        
+
         const finalState = await verifySearchOpened(page, originalUrl);
         if (finalState.urlChanged || finalState.onSearchPage) {
           return { success: true, method: 'keyboard' };
@@ -564,7 +572,7 @@ async function executeSearchWithFallbacks(
       // Continue to next shortcut
     }
   }
-  
+
   // ========================================================================
   // LAYER 3: Click Search Button (Header Scoped, Semantic)
   // ========================================================================
@@ -574,7 +582,7 @@ async function executeSearchWithFallbacks(
       // Scope to header first
       const headerSelectors = ['header', '[role="banner"]', 'nav', '.header', '#header'];
       let scope: Element | Document = document;
-      
+
       for (const sel of headerSelectors) {
         const header = document.querySelector(sel);
         if (header) {
@@ -582,7 +590,7 @@ async function executeSearchWithFallbacks(
           break;
         }
       }
-      
+
       // Button selectors in priority order
       const buttonSelectors = [
         'button[aria-label*="search" i]',
@@ -597,7 +605,7 @@ async function executeSearchWithFallbacks(
         'button.search',
         'a.search'
       ];
-      
+
       // Try header-scoped first
       for (const selector of buttonSelectors) {
         const btn = scope.querySelector(selector) as HTMLElement;
@@ -606,7 +614,7 @@ async function executeSearchWithFallbacks(
           return { clicked: true, selector };
         }
       }
-      
+
       // Fall back to page-wide
       if (scope !== document) {
         for (const selector of buttonSelectors) {
@@ -617,19 +625,19 @@ async function executeSearchWithFallbacks(
           }
         }
       }
-      
+
       return { clicked: false, selector: null };
     });
-    
+
     if (buttonClicked.clicked) {
       console.log(`  [SEARCH] ✓ Layer 3: Clicked button via ${buttonClicked.selector}`);
       await new Promise(r => setTimeout(r, 800));
-      
+
       // Verify search UI opened
       const state = await verifySearchOpened(page, originalUrl);
       if (state.inputVisible) {
         console.log(`  [SEARCH] ✓ Search UI opened, typing query...`);
-        
+
         // Find and fill the now-visible input
         await page.evaluate((q: string) => {
           const input = document.querySelector('input[type="search"], input[name="q"], input[placeholder*="search" i], [role="searchbox"]') as HTMLInputElement;
@@ -639,10 +647,10 @@ async function executeSearchWithFallbacks(
             input.dispatchEvent(new Event('input', { bubbles: true }));
           }
         }, query);
-        
+
         await page.keyboard.press('Enter');
         await new Promise(r => setTimeout(r, 2000));
-        
+
         const finalState = await verifySearchOpened(page, originalUrl);
         if (finalState.urlChanged || finalState.onSearchPage) {
           return { success: true, method: 'button_click' };
@@ -652,7 +660,7 @@ async function executeSearchWithFallbacks(
   } catch (e: any) {
     console.log(`  [SEARCH] Layer 3 error: ${e.message?.substring(0, 50)}`);
   }
-  
+
   // ========================================================================
   // LAYER 4: Site-Specific Selectors
   // ========================================================================
@@ -669,13 +677,13 @@ async function executeSearchWithFallbacks(
           }
           return false;
         }, siteConfig.searchButton);
-        
+
         if (clicked) {
           console.log(`  [SEARCH] ✓ Clicked site-specific button`);
           await new Promise(r => setTimeout(r, 800));
         }
       }
-      
+
       // Try site-specific input
       if (siteConfig.searchInput) {
         const filled = await page.evaluate((selector: string, q: string) => {
@@ -688,11 +696,11 @@ async function executeSearchWithFallbacks(
           }
           return false;
         }, siteConfig.searchInput, query);
-        
+
         if (filled) {
           await page.keyboard.press('Enter');
           await new Promise(r => setTimeout(r, 2000));
-          
+
           const state = await verifySearchOpened(page, originalUrl);
           if (state.urlChanged || state.onSearchPage) {
             console.log(`  [SEARCH] ✓ Layer 4 SUCCESS: Site-specific selector worked`);
@@ -704,7 +712,7 @@ async function executeSearchWithFallbacks(
       console.log(`  [SEARCH] Layer 4 error: ${e.message?.substring(0, 50)}`);
     }
   }
-  
+
   // ========================================================================
   // LAYER 5: URL Fallback
   // ========================================================================
@@ -716,30 +724,30 @@ async function executeSearchWithFallbacks(
     `?q=${encodeURIComponent(query)}`,
     `/pages/search-results?q=${encodeURIComponent(query)}`
   ];
-  
+
   for (const pattern of searchUrlPatterns) {
     try {
       const baseUrl = originalUrl.replace(/\/$/, '');
       const searchUrl = pattern.startsWith('?') ? `${baseUrl}${pattern}` : `${baseUrl}${pattern}`;
       console.log(`  [SEARCH] Trying URL: ${searchUrl}`);
-      
+
       await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 10000 });
       await new Promise(r => setTimeout(r, 1500));
-      
+
       // Check if we landed on a valid search page (not error/404)
       const isValidPage = await page.evaluate(() => {
         const text = document.body?.innerText?.toLowerCase() || '';
-        const isError = text.includes('page not found') || 
-                        text.includes('404') || 
-                        text.includes("this page doesn't exist") ||
-                        text.includes('error');
-        const hasResults = text.includes('result') || 
-                          text.includes('product') || 
-                          text.includes('showing') ||
-                          document.querySelectorAll('[class*="product"]').length > 0;
+        const isError = text.includes('page not found') ||
+          text.includes('404') ||
+          text.includes("this page doesn't exist") ||
+          text.includes('error');
+        const hasResults = text.includes('result') ||
+          text.includes('product') ||
+          text.includes('showing') ||
+          document.querySelectorAll('[class*="product"]').length > 0;
         return !isError && (hasResults || text.length > 500);
       });
-      
+
       if (isValidPage) {
         console.log(`  [SEARCH] ✓ Layer 5 SUCCESS: URL fallback worked`);
         return { success: true, method: 'url_fallback' };
@@ -748,7 +756,7 @@ async function executeSearchWithFallbacks(
       // Continue to next URL pattern
     }
   }
-  
+
   // Return to original page for Layer 6
   try {
     await page.goto(originalUrl, { waitUntil: 'domcontentloaded', timeout: 10000 });
@@ -756,7 +764,7 @@ async function executeSearchWithFallbacks(
   } catch {
     // Ignore
   }
-  
+
   // ========================================================================
   // LAYER 6: Stagehand AI (Last Resort)
   // ========================================================================
@@ -768,21 +776,21 @@ async function executeSearchWithFallbacks(
       8000
     );
     await new Promise(r => setTimeout(r, 1000));
-    
+
     // Verify
     let state = await verifySearchOpened(page, originalUrl);
     if (!state.inputVisible && !state.urlChanged) {
       console.log(`  [SEARCH] AI click didn't open search UI`);
       return { success: false, method: 'none', error: 'Stagehand AI could not find search UI' };
     }
-    
+
     // Step 2: Type query
     await actWithTimeout(stagehand,
       `Type "${query}" into the search input field that is currently visible on the page`,
       8000
     );
     await new Promise(r => setTimeout(r, 300));
-    
+
     // Step 3: Submit
     try {
       await actWithTimeout(stagehand,
@@ -795,19 +803,19 @@ async function executeSearchWithFallbacks(
         console.log(`  [SEARCH] ✓ Page navigated during submit`);
       }
     }
-    
+
     await new Promise(r => setTimeout(r, 2000));
-    
+
     const finalState = await verifySearchOpened(page, originalUrl);
     if (finalState.urlChanged || finalState.onSearchPage) {
       console.log(`  [SEARCH] ✓ Layer 6 SUCCESS: Stagehand AI worked`);
       return { success: true, method: 'stagehand_ai' };
     }
-    
+
   } catch (e: any) {
     console.log(`  [SEARCH] Layer 6 error: ${e.message?.substring(0, 80)}`);
   }
-  
+
   // All layers failed
   console.log(`  [SEARCH] ✗ All layers failed - could not execute search`);
   return { success: false, method: 'none', error: 'All search methods failed' };
@@ -829,70 +837,81 @@ async function generateNextQuery(
   context: QueryGenerationContext
 ): Promise<string> {
   const { domain, brandSummary, attempt, previousQueries } = context;
-  
-  // ADVERSARIAL Query Generator - designed to EXPOSE search weaknesses
-  // Strategy: Start conversational, progress to ambiguous/challenging
+
+  // PERSONA-BASED Query Generator - emulates real user search behavior
+  // Strategy: Solver (problem) → Hunter (specific) → Conversational (natural language)
   const getProgressionPrompt = (attempt: number, brandSummary: string) => {
     let searchStrategy = '';
-    
+
     if (attempt === 1) {
-      // Start with a QUESTION or problem statement, NOT a product name
-      searchStrategy = `ATTEMPT 1 (Question/Problem): Generate a conversational question or problem statement that a confused/unsure customer would type. They don't know what they need, they know what problem they have.
+      // THE SOLVER: Problem/context-based queries
+      searchStrategy = `ATTEMPT 1 (THE SOLVER - Problem/Context):
+Generate a search query from someone with a SPECIFIC PROBLEM or CONTEXT they need to solve.
+
+Think: health issues, life events, physical limitations, specific use cases
 
 GOOD EXAMPLES:
-- "what should I wear to a wedding"
-- "my feet hurt after work"  
-- "gift ideas for runners"
-- "help me look professional"
-- "need something waterproof"
+- "shoes for plantar fasciitis and overpronation"
+- "mattress for lower back pain relief"
+- "gear for backpacking europe two weeks carry-on only"
+- "makeup routine for mature skin large pores"
+- "small apartment dining table folds away"
 
-BAD EXAMPLES (too easy):
-- "running shoes" (direct product name)
-- "black boots" (product + attribute)
-- "men's sneakers" (category search)`;
+BAD EXAMPLES (too generic):
+- "comfortable shoes"
+- "good mattress"
+- "travel gear"
+
+The query should describe a REAL PROBLEM or SPECIFIC CONTEXT, not just preferences.`;
     } else if (attempt === 2) {
-      // Use synonyms, slang, or regional terms
-      searchStrategy = `ATTEMPT 2 (Synonym/Slang): Use informal language, synonyms, or terms that might NOT be in the product data. Real customers don't use marketing language.
+      // THE HUNTER: Multi-attribute specific queries
+      searchStrategy = `ATTEMPT 2 (THE HUNTER - Multi-Attribute Specific):
+Generate a search query from someone who knows EXACTLY what features/attributes they want. Think product expert.
+
+They want multiple specific attributes combined (materials, features, sizes, properties).
 
 GOOD EXAMPLES:
-- "kicks" instead of "sneakers"
-- "comfy trainers" (UK term)
-- "something that won't fall apart"
-- "stuff for the gym"
-- "cute but practical"
+- "lightweight trail running shoes gore-tex wide fit"
+- "retinol serum sensitive skin fragrance free"
+- "velvet sectional under 1000 pet-friendly fabric"
+- "modal boxer briefs long inseam moisture wicking"
+- "zero degree down sleeping bag ultralight under 2 lbs"
 
-BAD EXAMPLES (too standard):
-- "athletic shoes"
-- "casual footwear" 
-- "leather boots"`;
+BAD EXAMPLES (not specific enough):
+- "running shoes"
+- "serum"
+- "sectional"
+
+The query should have 3+ specific attributes/features combined.`;
     } else if (attempt === 3) {
-      // Multi-intent or ambiguous queries
-      searchStrategy = `ATTEMPT 3 (Ambiguous/Multi-Intent): Create a search that could be interpreted multiple ways, or asks for conflicting attributes that are hard to match.
+      // THE CONVERSATIONAL: Natural language, vague intent
+      searchStrategy = `ATTEMPT 3 (THE CONVERSATIONAL - Natural Language):
+Generate a search query as a QUESTION or STATEMENT in natural, conversational language. Vague intent, like asking a friend.
 
 GOOD EXAMPLES:
-- "something fancy but affordable"
-- "looks good with jeans and suits"
-- "stylish but won't make my feet hurt"
-- "gift for someone hard to shop for"
-- "casual and professional"
+- "what should I wear for marathon training"
+- "help me look awake after no sleep"
+- "make my living room look bigger"
+- "my dog won't stop scratching"
+- "which mattress if my partner is heavier than me"
 
-BAD EXAMPLES:
-- Any single-attribute search
-- Direct product categories`;
+BAD EXAMPLES (not conversational):
+- "marathon running clothes"
+- "concealer"
+- "space-saving furniture"
+
+The query should be a QUESTION or casual statement, like talking to a person.`;
     }
 
-    return `You are TESTING a search engine for: ${brandSummary}
-
-Your goal: Generate a CHALLENGING search query that might EXPOSE weaknesses in their search. You're not trying to find products easily - you're probing for failure.
+    return `You are generating a REALISTIC search query to test an e-commerce site: ${brandSummary}
 
 ${searchStrategy}
 
 CRITICAL RULES:
-- Do NOT use obvious product category words like "shoes", "boots", "sneakers", "sandals" directly
-- Think: what would a real person type when they're confused, rushed, or don't know the proper term?
-- Avoid any marketing/catalog language
-- Keep it under 8 words
-- Must be something a real human would actually search
+- Sound like a REAL human customer searching (not a product catalog)
+- Keep it under 10 words
+- Use natural language people actually type
+- No marketing speak or technical jargon
 
 Output: Just the search query itself. One line. No explanation.`;
   };
@@ -901,12 +920,12 @@ Output: Just the search query itself. One line. No explanation.`;
 
   try {
     const response = await openai.chat.completions.create({
-      model: 'gpt-4.1-mini',
+      model: 'gpt-5-mini',
       messages: [{ role: 'user', content: prompt }],
       max_tokens: 150,
       temperature: 0.85  // Higher temp for variety and more natural queries
     });
-    
+
     const content = response.choices[0]?.message?.content || '';
     // Now expects plain text, not JSON
     const query = content
@@ -914,12 +933,12 @@ Output: Just the search query itself. One line. No explanation.`;
       .split('\n')[0]  // Take first line
       .replace(/^["']|["']$/g, '')  // Remove quotes if present
       .substring(0, 120);
-    
+
     if (query && query.length > 5 && !query.includes('{')) {
       console.log(`  [AI] Generated query ${attempt}: "${query}"`);
       return query;
     }
-    
+
     // Fallback to parsing JSON if response looks like JSON
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
@@ -929,56 +948,11 @@ Output: Just the search query itself. One line. No explanation.`;
   } catch (e: any) {
     console.error(`  [AI] Query generation failed: ${e.message}`);
   }
-  
-  // ADVERSARIAL fallback queries - designed to challenge search
-  const brandLower = brandSummary.toLowerCase();
-  let fallbacks: string[];
-  
-  if (brandLower.includes('shoe') || brandLower.includes('footwear') || brandLower.includes('sneaker')) {
-    fallbacks = [
-      'my feet hurt help',
-      'something for a wedding',
-      'gift for my boyfriend',
-      'what goes with jeans',
-      'need comfy kicks asap'
-    ];
-  } else if (brandLower.includes('underwear') || brandLower.includes('boxer') || brandLower.includes('brief')) {
-    fallbacks = [
-      'won\'t ride up',
-      'stuff for the gym',
-      'something breathable',
-      'gift for husband',
-      'what size am i'
-    ];
-  } else if (brandLower.includes('cloth') || brandLower.includes('apparel') || brandLower.includes('fashion')) {
-    fallbacks = [
-      'what to wear to interview',
-      'need outfit asap',
-      'gift for mom',
-      'looks good but comfy',
-      'casual but professional'
-    ];
-  } else if (brandLower.includes('swim') || brandLower.includes('beach')) {
-    fallbacks = [
-      'vacation next week help',
-      'won\'t fall off in waves',
-      'flattering for curvy',
-      'something modest',
-      'gift for sister beach trip'
-    ];
-  } else {
-    fallbacks = [
-      'need gift ideas',
-      'help me find something',
-      'what\'s popular right now',
-      'something comfortable',
-      'works for travel'
-    ];
-  }
-  
-  const selected = fallbacks[Math.min(attempt - 1, fallbacks.length - 1)];
-  console.log(`  [AI] Using fallback query ${attempt}: "${selected}"`);
-  return selected;
+
+
+  // Simple fallback if AI generation failed
+  console.log(`  [AI] Using generic fallback for attempt ${attempt}`);
+  return `popular items`;
 }
 
 // ============================================================================
@@ -999,7 +973,7 @@ async function evaluateSearchResults(
   query: string,
   screenshotBase64: string
 ): Promise<EvaluationResult> {
-  
+
   const prompt = `Evaluate if this e-commerce search returned RELEVANT products for the query.
 
 QUERY: "${query}"
@@ -1050,7 +1024,7 @@ Return JSON:
           role: 'user',
           content: [
             { type: 'text', text: prompt },
-            { 
+            {
               type: 'image_url',
               image_url: {
                 url: `data:image/png;base64,${screenshotBase64}`,
@@ -1060,14 +1034,14 @@ Return JSON:
           ]
         }
       ],
-      max_tokens: 400,
+      max_completion_tokens: 400,
       temperature: 0
     });
-    
+
     const content = response.choices[0]?.message?.content || '';
     console.log(`  [AI] Evaluation raw response (first 200 chars): ${content.substring(0, 200)}`);
     const jsonMatch = content.match(/\{[\s\S]*\}/);
-    
+
     if (jsonMatch) {
       try {
         const data = JSON.parse(jsonMatch[0]);
@@ -1100,9 +1074,9 @@ Return JSON:
             role: 'user',
             content: [
               { type: 'text', text: prompt },
-              { 
+              {
                 type: 'image_url',
-                image_url: { 
+                image_url: {
                   url: `data:image/png;base64,${screenshotBase64}`,
                   detail: 'low'
                 }
@@ -1110,13 +1084,13 @@ Return JSON:
             ]
           }
         ],
-        max_tokens: 400,
+        max_completion_tokens: 400,
         temperature: 0
       });
-      
+
       const content = fallbackResponse.choices[0]?.message?.content || '';
       const jsonMatch = content.match(/\{[\s\S]*\}/);
-      
+
       if (jsonMatch) {
         const data = JSON.parse(jsonMatch[0]);
         return {
@@ -1132,7 +1106,7 @@ Return JSON:
       // Final fallback
     }
   }
-  
+
   // Default to not a significant failure if we can't evaluate
   return {
     isSignificantFailure: false,
@@ -1179,44 +1153,44 @@ export async function aiFullAnalysis(
   };
 }> {
   const startTime = Date.now();
-  
+
   console.log(`\n[ADVERSARIAL] ========================================`);
   console.log(`[ADVERSARIAL] Starting adversarial analysis for: ${domain}`);
   console.log(`[ADVERSARIAL] Max ${MAX_ATTEMPTS} queries, stop on significant failure`);
   console.log(`[ADVERSARIAL] ========================================\n`);
-  
+
   const openai = getOpenAIClient();
   const stagehand = await createStagehandSession();
   const db = getDb();
-  
+
   const queriesTested: QueryTestResult[] = [];
   let proofQuery: string | null = null;
   let failedOnAttempt: number | null = null;
   let failureScreenshotPath: string | null = null;
   let failureReasoning = '';
-  
+
   try {
     const url = domain.startsWith('http') ? domain : `https://${domain}`;
     const page = stagehand.context.pages()[0];
     const brandName = domain.replace(/^www\./, '').replace(/\.(com|co\.uk|net|org).*$/, '');
-    
+
     // Setup browser
     console.log(`[ADVERSARIAL] Setting up browser...`);
     await (page as any).setViewportSize(1920, 1080);
-    
+
     // Navigate to homepage
     console.log(`[ADVERSARIAL] Navigating to ${url}...`);
     await page.goto(url, { waitUntil: 'domcontentloaded' });
     await new Promise(r => setTimeout(r, 1500));  // Reduced from 3000
-    
+
     // Dismiss popups
     await dismissPopups(stagehand, page);
-    
+
     // Screenshot homepage - wait for images to load first
     console.log(`[ADVERSARIAL] Capturing homepage...`);
     await page.evaluate(() => window.scrollTo(0, 0));
     await new Promise(r => setTimeout(r, 500));  // Reduced from 1000
-    
+
     // Wait for images to load (with shorter timeout)
     try {
       await page.evaluate(async () => {
@@ -1236,37 +1210,51 @@ export async function aiFullAnalysis(
       // Ignore image loading errors
     }
     await new Promise(r => setTimeout(r, 200));  // Reduced from 500
-    
+
     const homepageScreenshotPath = getArtifactPath(jobId, domain, 'homepage', 'png');
-    await page.screenshot({ 
-      path: homepageScreenshotPath, 
-      fullPage: true, 
+    await page.screenshot({
+      path: homepageScreenshotPath,
+      fullPage: true,
       type: 'png'
     });
     console.log(`  [AI] ✓ Homepage saved: ${homepageScreenshotPath}`);
-    
+
     // Get brand understanding from homepage screenshot (NOT just domain name)
     let brandSummary = 'E-commerce retailer';
     try {
       const homepageBase64 = fs.readFileSync(homepageScreenshotPath).toString('base64');
       const brandResponse = await openai.chat.completions.create({
         model: 'gpt-4o',
-        messages: [{ 
-          role: 'user', 
+        messages: [{
+          role: 'user',
           content: [
-            { 
-              type: 'text', 
-              text: `Look at this e-commerce homepage screenshot. What is the PRIMARY PRODUCT CATEGORY this store sells?
+            {
+              type: 'text',
+              text: `Analyze this e-commerce homepage and extract:
 
-IMPORTANT: Focus on the actual product type being sold, NOT the designs/graphics on products.
-- If you see underwear with cartoon prints, they sell "underwear" not "cartoons"
-- If you see t-shirts with food logos, they sell "apparel" not "food"
+1. PRIMARY PRODUCT CATEGORY (2-4 words, e.g. "Athletic footwear", "Outdoor clothing")
+   - Focus on actual product type, NOT designs/graphics on products
+   
+2. TARGET AUDIENCE (one sentence, e.g. "Budget-conscious parents", "High-end athletes")
 
-Answer in 2-4 words only. Examples:
-- "Underwear and loungewear"
-- "Athletic footwear"
-- "Outdoor clothing"
-- "Home furniture"` 
+3. KEY BUYING MOTIVATIONS (comma-separated, e.g. "Gift giving, Performance, Style")
+
+4. THREE BUYER PERSONAS for search testing:
+   a) THE SOLVER: Problem/context-based shopper (e.g. someone with plantar fasciitis, needs gear for trip)
+   b) THE HUNTER: Multi-attribute specific shopper (e.g. seeking "gore-tex wide fit trail shoes")
+   c) THE CONVERSATIONAL: Natural language, vague intent (e.g. "what should I wear for...")
+
+Return JSON:
+{
+  "category": "...",
+  "audience": "...",
+  "motivations": "...",
+  "personas": {
+    "solver": "brief description of their problem/context",
+    "hunter": "brief description of what specific attributes they seek",
+    "conversational": "brief description of their vague shopping intent"
+  }
+}`
             },
             {
               type: 'image_url',
@@ -1277,15 +1265,31 @@ Answer in 2-4 words only. Examples:
             }
           ]
         }],
-        max_tokens: 30,
+        max_completion_tokens: 300,
         temperature: 0
       });
-      brandSummary = brandResponse.choices[0]?.message?.content?.trim() || brandSummary;
+
+      const responseContent = brandResponse.choices[0]?.message?.content?.trim() || '';
+      console.log(`  [AI] Site profiling response:`, responseContent.substring(0, 200));
+
+      try {
+        const jsonMatch = responseContent.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const profileData = JSON.parse(jsonMatch[0]);
+          brandSummary = `${profileData.category || 'E-commerce retailer'} | ${profileData.audience || 'General shoppers'}`;
+          console.log(`  [AI] Personas extracted:`, profileData.personas);
+        } else {
+          brandSummary = responseContent.substring(0, 100) || brandSummary;
+        }
+      } catch (parseError) {
+        console.log(`  [AI] JSON parsing failed, using raw response`);
+        brandSummary = responseContent.substring(0, 100) || brandSummary;
+      }
     } catch (e: any) {
       console.log(`  [AI] Brand detection failed: ${e.message}, using default`);
     }
     console.log(`  [AI] Brand: ${brandSummary}`);
-    
+
     // Build site profile
     const siteProfile: AISiteProfile = {
       companyName: brandName,
@@ -1295,16 +1299,16 @@ Answer in 2-4 words only. Examples:
       visibleCategories: [],
       aiObservations: brandSummary
     };
-    
+
     // ========================================================================
     // ADVERSARIAL TESTING LOOP
     // ========================================================================
-    
+
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       console.log(`\n[ADVERSARIAL] ----------------------------------------`);
       console.log(`[ADVERSARIAL] Query ${attempt}/${MAX_ATTEMPTS}`);
       console.log(`[ADVERSARIAL] ----------------------------------------`);
-      
+
       // Generate next query (adaptive based on previous results)
       const query = await generateNextQuery(openai, {
         domain,
@@ -1313,7 +1317,7 @@ Answer in 2-4 words only. Examples:
         previousQueries: queriesTested
       });
       console.log(`  [AI] Testing: "${query}"`);
-      
+
       // Navigate back to homepage for fresh search
       if (attempt > 1) {
         console.log(`  [AI] Returning to homepage...`);
@@ -1321,14 +1325,14 @@ Answer in 2-4 words only. Examples:
         await new Promise(r => setTimeout(r, 1000));  // Reduced from 2000
         await dismissPopups(stagehand, page);
       }
-      
+
       // ============================================================
       // SEARCH - Layered JS-first approach with Stagehand fallback
       // ============================================================
-      
+
       // Store URL before search to verify navigation
       const urlBeforeSearch = page.url();
-      
+
       // Execute search using layered fallback approach
       const searchResult = await executeSearchWithFallbacks(
         page,
@@ -1337,34 +1341,34 @@ Answer in 2-4 words only. Examples:
         domain,
         url
       );
-      
+
       console.log(`  [AI] Search result: ${searchResult.success ? '✓ SUCCESS' : '✗ FAILED'} via ${searchResult.method}`);
       if (searchResult.error) {
         console.log(`  [AI] Error: ${searchResult.error}`);
       }
-      
+
       // Get the current page after potential navigation (page context may have changed)
       const pagesAfterSearch = stagehand.context.pages();
       const activePage = pagesAfterSearch[pagesAfterSearch.length - 1] || page;
-      
+
       // Check if we're still on homepage (search navigation failed)
       const finalUrl = activePage.url();
       const stillOnHomepage = !searchResult.success && (
-                              finalUrl === urlBeforeSearch || 
-                              finalUrl === url || 
-                              (finalUrl.replace(/\/$/, '') === url.replace(/\/$/, '')));
-      
+        finalUrl === urlBeforeSearch ||
+        finalUrl === url ||
+        (finalUrl.replace(/\/$/, '') === url.replace(/\/$/, '')));
+
       if (stillOnHomepage) {
         console.log(`  [AI] ⚠ STILL ON HOMEPAGE - Search navigation completely failed`);
       } else {
         console.log(`  [AI] ✓ On results page: ${finalUrl}`);
       }
-      
+
       // Wait for images to load before screenshot
       console.log(`  [AI] Capturing results...`);
       await activePage.evaluate(() => window.scrollTo(0, 0));
       await new Promise(r => setTimeout(r, 500));  // Reduced from 1000
-      
+
       // Wait for images to actually load (shorter timeout)
       try {
         await activePage.evaluate(async () => {
@@ -1384,20 +1388,20 @@ Answer in 2-4 words only. Examples:
         // Ignore image loading errors
       }
       await new Promise(r => setTimeout(r, 300)); // Reduced from 1000
-      
+
       // Check for error page BEFORE screenshot
       const pageContent = await activePage.evaluate(() => document.body?.innerText || '');
       const isErrorPage = pageContent.includes("This site can't be reached") ||
-                          pageContent.includes("ERR_") ||
-                          pageContent.includes("404") ||
-                          pageContent.includes("Page not found") ||
-                          pageContent.includes("cannot be displayed") ||
-                          pageContent.includes("Connection failed");
-      
+        pageContent.includes("ERR_") ||
+        pageContent.includes("404") ||
+        pageContent.includes("Page not found") ||
+        pageContent.includes("cannot be displayed") ||
+        pageContent.includes("Connection failed");
+
       if (isErrorPage) {
         console.log(`  [AI] ⚠ ERROR PAGE DETECTED - Navigation failed completely`);
         console.log(`  [AI] Attempting to return to homepage and retry...`);
-        
+
         // Try to recover - go back to homepage
         try {
           await activePage.goto(url, { waitUntil: 'domcontentloaded' });
@@ -1406,15 +1410,15 @@ Answer in 2-4 words only. Examples:
           // Ignore recovery errors
         }
       }
-      
+
       const resultsScreenshotPath = getArtifactPath(jobId, domain, `results_${attempt}`, 'png');
-      await activePage.screenshot({ 
-        path: resultsScreenshotPath, 
-        fullPage: true, 
+      await activePage.screenshot({
+        path: resultsScreenshotPath,
+        fullPage: true,
         type: 'png'
       });
       console.log(`  [AI] ✓ Results screenshot: ${resultsScreenshotPath}`);
-      
+
       // Evaluate results - handle different failure cases
       let evaluation;
       if (isErrorPage) {
@@ -1441,7 +1445,7 @@ Answer in 2-4 words only. Examples:
         const resultsBase64 = fs.readFileSync(resultsScreenshotPath).toString('base64');
         evaluation = await evaluateSearchResults(openai, query, resultsBase64);
       }
-      
+
       console.log(`  [AI] Result count: ${evaluation.resultCount ?? 'unknown'}`);
       console.log(`  [AI] Relevant results: ${evaluation.relevantResultCount}`);
       if (evaluation.firstRelevantPosition) {
@@ -1449,7 +1453,7 @@ Answer in 2-4 words only. Examples:
       }
       console.log(`  [AI] Significant failure: ${evaluation.isSignificantFailure}`);
       console.log(`  [AI] Reasoning: ${evaluation.reasoning}`);
-      
+
       // Record result
       const testResult: QueryTestResult = {
         query,
@@ -1463,7 +1467,7 @@ Answer in 2-4 words only. Examples:
         screenshotPath: resultsScreenshotPath
       };
       queriesTested.push(testResult);
-      
+
       // Log to database
       if (db) {
         try {
@@ -1483,7 +1487,7 @@ Answer in 2-4 words only. Examples:
           // Ignore DB errors
         }
       }
-      
+
       // Check for significant failure - STOP if found
       if (evaluation.isSignificantFailure) {
         console.log(`\n  [AI] ✗ SIGNIFICANT FAILURE FOUND!`);
@@ -1494,27 +1498,27 @@ Answer in 2-4 words only. Examples:
         failureReasoning = evaluation.reasoning;
         break;
       }
-      
+
       console.log(`  [AI] ✓ Query passed, trying harder...`);
     }
-    
+
     await stagehand.close();
-    
+
     // ========================================================================
     // BUILD RESULT
     // ========================================================================
-    
+
     const durationMs = Date.now() - startTime;
-    
+
     // Determine verdict - distinguish system errors from actual search failures
     let verdict: 'OUTREACH' | 'SKIP' | 'REVIEW';
     let reason: string;
-    
+
     // Check if failures are system errors (couldn't execute search) vs actual search quality issues
     const systemErrorQueries = queriesTested.filter(q => q.reasoning?.includes('SYSTEM ERROR'));
     const actualSearchFailures = queriesTested.filter(q => !q.passed && !q.reasoning?.includes('SYSTEM ERROR'));
     const successfulQueries = queriesTested.filter(q => q.passed);
-    
+
     if (systemErrorQueries.length === queriesTested.length) {
       // ALL queries were system errors - we couldn't test the search at all
       verdict = 'REVIEW';
@@ -1543,21 +1547,21 @@ Answer in 2-4 words only. Examples:
       verdict = 'REVIEW';
       reason = 'Analysis incomplete';
     }
-    
+
     // ========================================================================
     // GENERATE NARRATIVE SUMMARY WITH LLM INSIGHT
     // ========================================================================
-    
+
     // Build the journey narrative
     const journeySteps = queriesTested.map((q, i) => {
       const status = q.passed ? '✅' : '❌';
       const resultText = q.resultCount !== null ? `${q.resultCount} results` : 'unknown results';
-      const positionText = q.firstRelevantPosition 
-        ? ` (relevant at position ${q.firstRelevantPosition})` 
+      const positionText = q.firstRelevantPosition
+        ? ` (relevant at position ${q.firstRelevantPosition})`
         : '';
       return `${i + 1}. "${q.query}" → ${status} ${resultText}${positionText}${q.passed ? '' : ' - FAILED'}`;
     });
-    
+
     let narrativeSummary = '';
     if (proofQuery) {
       const passedCount = queriesTested.filter(q => q.passed).length;
@@ -1570,11 +1574,11 @@ Answer in 2-4 words only. Examples:
         journeySteps.join('\n') + '\n\n' +
         `CONCLUSION: Search handled all test queries well. This site has robust search capabilities.`;
     }
-    
+
     // Generate LLM insight - a richer explanation of what this means
     let queryInsight = '';
     try {
-      const insightPrompt = proofQuery 
+      const insightPrompt = proofQuery
         ? `You are a search optimization expert analyzing an e-commerce site (${domain}, selling ${brandSummary}).
 
 We tested their search with ${queriesTested.length} queries. It handled ${queriesTested.filter(q => q.passed).length} queries but FAILED on: "${proofQuery}"
@@ -1596,16 +1600,16 @@ Write a 1-2 sentence summary acknowledging their search handles natural language
         max_tokens: 200,
         temperature: 0.7
       });
-      
+
       queryInsight = insightResponse.choices[0]?.message?.content?.trim() || '';
     } catch (e: any) {
       console.log(`  [AI] Insight generation failed: ${e.message}`);
       // Fallback insight
-      queryInsight = proofQuery 
+      queryInsight = proofQuery
         ? `When a customer searches "${proofQuery}" and gets zero results, they don't try again—they leave. This represents real revenue walking out the door.`
         : 'This site handles natural language search well across our test queries.';
     }
-    
+
     // Generate "queries that would work" (simple keyword-based)
     const queriesThatWork = [
       `${brandSummary.split(' ')[0].toLowerCase()}`, // First word of brand summary
@@ -1615,14 +1619,14 @@ Write a 1-2 sentence summary acknowledging their search handles natural language
       `${brandSummary.toLowerCase()} for men`,
       `${brandSummary.toLowerCase()} for women`
     ].filter(q => q.length > 2);
-    
+
     console.log(`\n[ADVERSARIAL] ========================================`);
     console.log(`[ADVERSARIAL] VERDICT: ${verdict}`);
     console.log(`[ADVERSARIAL] Queries tested: ${queriesTested.length}`);
     console.log(`[ADVERSARIAL] Failed on: ${failedOnAttempt || 'none'}`);
     console.log(`[ADVERSARIAL] Duration: ${durationMs}ms`);
     console.log(`[ADVERSARIAL] ========================================\n`);
-    
+
     // Copy the failure screenshot to 'results.png' for frontend compatibility
     const finalResultsPath = getArtifactPath(jobId, domain, 'results', 'png');
     if (failureScreenshotPath && fs.existsSync(failureScreenshotPath)) {
@@ -1631,10 +1635,10 @@ Write a 1-2 sentence summary acknowledging their search handles natural language
       // Use last tested query's screenshot
       fs.copyFileSync(queriesTested[queriesTested.length - 1].screenshotPath!, finalResultsPath);
     }
-    
+
     // Return in legacy format for compatibility
     const lastTest = queriesTested[queriesTested.length - 1];
-    
+
     return {
       siteProfile,
       nlQuery: proofQuery || lastTest?.query || '',
@@ -1677,7 +1681,7 @@ Write a 1-2 sentence summary acknowledging their search handles natural language
         queryInsight
       }
     };
-    
+
   } catch (error) {
     await stagehand.close();
     throw error;

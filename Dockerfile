@@ -1,6 +1,6 @@
 # Dockerfile for Railway deployment with Browserbase
 # No local browser needed - Browserbase runs browsers in the cloud
-FROM node:20-slim
+FROM oven/bun:1
 
 # Set working directory
 WORKDIR /app
@@ -12,24 +12,23 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy package files
-COPY package*.json ./
-COPY tsconfig.json ./
+COPY package.json bun.lockb* tsconfig.json ./
 
 # Copy Prisma schema early
 COPY prisma/ ./prisma/
 
-# Install dependencies
-RUN npm ci
+# Install dependencies (frozen lockfile for reproducibility)
+RUN bun install --frozen-lockfile
 
 # Generate Prisma client
-RUN npx prisma generate
+RUN bun x prisma generate
 
 # Copy source files
 COPY src/ ./src/
 COPY public/ ./public/
 
 # Build TypeScript
-RUN npm run build
+RUN bun run build
 
 # Create artifacts directory
 RUN mkdir -p artifacts
@@ -39,4 +38,4 @@ EXPOSE 3000
 
 # Start server with database setup
 # Use a startup script for better logging and error handling
-CMD ["sh", "-c", "echo '[STARTUP] Running prisma db push...' && npx prisma db push --accept-data-loss 2>&1 && echo '[STARTUP] Database setup complete' && node dist/server.js"]
+CMD ["sh", "-c", "echo '[STARTUP] Running prisma db push...' && bun x prisma db push --accept-data-loss 2>&1 && echo '[STARTUP] Database setup complete' && bun dist/server.js"]

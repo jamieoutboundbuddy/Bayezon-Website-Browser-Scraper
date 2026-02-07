@@ -18,11 +18,15 @@ async function startAnalysis() {
     return;
   }
 
+  // Clear previous cached results
+  localStorage.removeItem('lastSearchResults');
+  localStorage.removeItem('lastSearchTimestamp');
+
   // Update UI
   document.getElementById('empty-state').classList.add('hidden');
   document.getElementById('smart-results-section').classList.add('hidden');
   document.getElementById('loading-state').classList.remove('hidden');
-  
+
   const btn = document.getElementById('search-btn');
   btn.disabled = true;
   btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Analyzing...';
@@ -53,7 +57,7 @@ async function startAnalysis() {
         }
       }
     }, 4000);
-    
+
     const response = await fetch('/api/analyze', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -69,12 +73,20 @@ async function startAnalysis() {
 
     const data = await response.json();
     currentData = data;
-    
+
+    // Save to localStorage for persistence
+    try {
+      localStorage.setItem('lastSearchResults', JSON.stringify(data));
+      localStorage.setItem('lastSearchTimestamp', Date.now().toString());
+    } catch (e) {
+      console.warn('Failed to save to localStorage:', e);
+    }
+
     updateProgress(100, 'Complete!');
     await new Promise(r => setTimeout(r, 500));
-    
+
     renderResults(data);
-    
+
   } catch (error) {
     console.error('Analysis error:', error);
     showToast('Error: ' + error.message);
@@ -95,7 +107,7 @@ function renderResults(data) {
 
   const { siteProfile, comparison, screenshotUrls, durationMs, adversarial, summary } = data;
   const verdict = comparison?.verdict || data.verdict || 'INCONCLUSIVE';
-  
+
   // Verdict card
   const verdictCard = document.getElementById('smart-verdict-card');
   const verdictBadge = document.getElementById('smart-verdict-badge');
@@ -159,7 +171,7 @@ function renderScreenshots(adversarial, screenshots, siteProfile) {
   if (!grid || !screenshots) return;
 
   const items = [];
-  
+
   // Homepage
   if (screenshots.homepage) {
     items.push({
@@ -252,12 +264,12 @@ function renderQueriesTested(queries, insight) {
             </span>
           </div>
           <p class="font-medium text-gray-900">"${q.query}"</p>
-          ${q.resultCount !== null && q.resultCount !== undefined ? 
-            `<p class="text-sm text-gray-500 mt-1">${q.resultCount} results found</p>` : ''
-          }
-          ${q.reasoning ? 
-            `<p class="text-sm text-gray-600 mt-2 italic">${q.reasoning}</p>` : ''
-          }
+          ${q.resultCount !== null && q.resultCount !== undefined ?
+      `<p class="text-sm text-gray-500 mt-1">${q.resultCount} results found</p>` : ''
+    }
+          ${q.reasoning ?
+      `<p class="text-sm text-gray-600 mt-2 italic">${q.reasoning}</p>` : ''
+    }
         </div>
         <div class="text-2xl ${q.passed ? 'text-green-500' : 'text-amber-500'}">
           <i class="fas ${q.passed ? 'fa-check-circle' : 'fa-lightbulb'}"></i>
@@ -275,7 +287,7 @@ function renderQueriesTested(queries, insight) {
 function renderWorkingQueries(queries) {
   const section = document.getElementById('working-queries-section');
   const container = document.getElementById('working-queries');
-  
+
   if (!section || !container) return;
 
   if (queries.length === 0) {
@@ -294,10 +306,10 @@ function renderWorkingQueries(queries) {
  */
 function renderSiteProfile(profile) {
   if (!profile) return;
-  
+
   const grid = document.getElementById('site-profile-grid');
   if (!grid) return;
-  
+
   const items = [
     { label: 'Company', value: profile.company || profile.companyName || 'Unknown' },
     { label: 'Industry', value: profile.industry || 'Unknown' },
@@ -327,7 +339,7 @@ function updateProgress(pct, message) {
 function toggleSection(id) {
   const content = document.getElementById(`${id}-content`);
   const chevron = document.getElementById(`${id}-chevron`);
-  
+
   if (content) content.classList.toggle('open');
   if (chevron) {
     chevron.classList.toggle('fa-chevron-down');
@@ -370,18 +382,18 @@ function showToast(message) {
  */
 function switchTab(tab) {
   console.log('Switching to tab:', tab);
-  
+
   // Hide all tabs
   const singleTab = document.getElementById('single-tab');
   const batchTab = document.getElementById('batch-tab');
   const tabSingleBtn = document.getElementById('tab-single');
   const tabBatchBtn = document.getElementById('tab-batch');
-  
+
   if (!singleTab || !batchTab || !tabSingleBtn || !tabBatchBtn) {
     console.error('Tab elements not found');
     return;
   }
-  
+
   if (tab === 'single') {
     singleTab.classList.remove('hidden');
     batchTab.classList.add('hidden');
@@ -405,9 +417,9 @@ function switchTab(tab) {
 function handleCsvSelected() {
   const fileInput = document.getElementById('csv-file');
   const file = fileInput.files[0];
-  
+
   if (!file) return;
-  
+
   document.getElementById('csv-filename').classList.remove('hidden');
   document.getElementById('filename-text').textContent = file.name + ` (${(file.size / 1024 / 1024).toFixed(2)} MB)`;
 }
@@ -419,25 +431,25 @@ async function uploadCsv() {
   const password = document.getElementById('csv-password').value.trim();
   const fileInput = document.getElementById('csv-file');
   const file = fileInput.files[0];
-  
+
   if (!password) {
     showToast('Please enter the CSV upload password');
     return;
   }
-  
+
   if (!file) {
     showToast('Please select a CSV file');
     return;
   }
-  
+
   const btn = document.getElementById('upload-btn');
   btn.disabled = true;
   btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Uploading...';
-  
+
   try {
     const formData = new FormData();
     formData.append('file', file);
-    
+
     const response = await fetch('/api/batch/upload', {
       method: 'POST',
       headers: {
@@ -445,31 +457,31 @@ async function uploadCsv() {
       },
       body: formData
     });
-    
+
     if (!response.ok) {
       const err = await response.json().catch(() => ({ error: 'Upload failed' }));
       throw new Error(err.error || 'Upload failed');
     }
-    
+
     const data = await response.json();
     currentBatchId = data.batchId;
-    
+
     showToast(`✓ Batch uploaded! ${data.totalDomains} domains queued for processing.`);
-    
+
     // Show batch status
     document.getElementById('batch-empty-state').classList.add('hidden');
     document.getElementById('batch-status-section').classList.remove('hidden');
-    
+
     // Clear form
     fileInput.value = '';
     document.getElementById('csv-filename').classList.add('hidden');
     document.getElementById('csv-password').value = '';
-    
+
     // Start polling
     pollBatchStatus();
     if (batchPollInterval) clearInterval(batchPollInterval);
     batchPollInterval = setInterval(() => pollBatchStatus(), 5000);
-    
+
   } catch (error) {
     console.error('Upload error:', error);
     showToast('Error: ' + error.message);
@@ -484,10 +496,10 @@ async function uploadCsv() {
  */
 async function pollBatchStatus() {
   if (!currentBatchId) return;
-  
+
   try {
     const response = await fetch(`/api/batch/${currentBatchId}`);
-    
+
     if (!response.ok) {
       if (response.status === 404) {
         clearInterval(batchPollInterval);
@@ -495,14 +507,14 @@ async function pollBatchStatus() {
       }
       return;
     }
-    
+
     const data = await response.json();
-    
+
     // Update progress
     const total = data.totalDomains;
     const completed = data.progress.completed;
     const progress = total > 0 ? (completed / total) * 100 : 0;
-    
+
     document.getElementById('batch-progress-bar').style.width = `${progress}%`;
     document.getElementById('batch-progress-text').textContent = `${completed}/${total}`;
     document.getElementById('batch-total').textContent = total;
@@ -510,13 +522,13 @@ async function pollBatchStatus() {
     document.getElementById('batch-running').textContent = data.progress.statusBreakdown.running;
     document.getElementById('batch-failed').textContent = data.progress.statusBreakdown.failed;
     document.getElementById('batch-id-display').textContent = data.batchId;
-    
+
     // Stop polling when complete
     if (data.status === 'completed' || data.status === 'failed') {
       clearInterval(batchPollInterval);
       showToast(`Batch ${data.status === 'completed' ? 'completed' : 'failed'}!`);
     }
-    
+
   } catch (error) {
     console.error('Poll error:', error);
   }
@@ -532,11 +544,49 @@ function copyBatchId() {
 }
 
 /**
+ * Restore previous results from localStorage
+ */
+function restoreFromCache() {
+  try {
+    const savedResults = localStorage.getItem('lastSearchResults');
+    const savedTimestamp = localStorage.getItem('lastSearchTimestamp');
+
+    if (!savedResults || !savedTimestamp) return false;
+
+    // Check if results are less than 24 hours old
+    const age = Date.now() - parseInt(savedTimestamp);
+    const maxAge = 24 * 60 * 60 * 1000; // 24 hours
+
+    if (age > maxAge) {
+      // Expired, clear it
+      localStorage.removeItem('lastSearchResults');
+      localStorage.removeItem('lastSearchTimestamp');
+      return false;
+    }
+
+    // Restore results
+    const data = JSON.parse(savedResults);
+    currentData = data;
+    renderResults(data);
+
+    // Show restoration toast
+    showToast(`✓ Restored previous results (${Math.round(age / 1000 / 60)} min ago)`);
+    return true;
+  } catch (e) {
+    console.error('Failed to restore from cache:', e);
+    return false;
+  }
+}
+
+/**
  * Initialize page on load
  */
 document.addEventListener('DOMContentLoaded', () => {
   // Set initial tab state (single tab active)
   switchTab('single');
+
+  // Restore previous search results if available
+  restoreFromCache();
 });
 
 /**

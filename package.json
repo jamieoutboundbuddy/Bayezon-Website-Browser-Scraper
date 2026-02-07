@@ -4,9 +4,9 @@
   "description": "Tool that automates website search interactions and captures screenshots at each stage",
   "main": "dist/server.js",
   "scripts": {
-    "dev": "ts-node src/server.ts",
+    "dev": "bun src/server.ts",
     "build": "prisma generate && tsc",
-    "start": "prisma db push --accept-data-loss && node dist/server.js",
+    "start": "prisma db push --accept-data-loss && bun dist/server.js",
     "test": "echo \"Error: no test specified\" && exit 1",
     "clean": "rm -rf dist artifacts",
     "db:generate": "prisma generate",
