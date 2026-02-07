@@ -920,10 +920,10 @@ Output: Just the search query itself. One line. No explanation.`;
 
   try {
     const response = await openai.chat.completions.create({
-      model: 'gpt-5-mini',
+      model: 'gpt-4o-mini',
       messages: [{ role: 'user', content: prompt }],
-      max_completion_tokens: 150
-      // temperature removed - gpt-5-mini only supports default value of 1
+      max_completion_tokens: 150,
+      temperature: 0  // gpt-4o-mini supports temperature parameter
     });
 
     const content = response.choices[0]?.message?.content || '';
