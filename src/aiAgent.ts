@@ -155,176 +155,195 @@ async function actWithTimeout(
 // ============================================================================
 
 async function dismissPopups(stagehand: Stagehand, page: any): Promise<void> {
-  console.log('  [AI] Quick popup check...');
+  console.log('  [AI] Popup dismissal starting...');
   
-  // FAST: Try JavaScript-based dismissal first (instant, no API call)
-  try {
-    const dismissed = await page.evaluate(() => {
-      let found = false;
-      
-      // ============================================================
-      // STEP 1: Find dismiss buttons by TEXT content
-      // This catches Steve Madden "NO, THANKS", Allbirds "DECLINE OFFER", etc.
-      // ============================================================
-      const dismissTexts = [
-        'no, thanks', 'no thanks', 'no, thank you', 'no thank you',
-        'decline', 'decline offer', 'not now', 'maybe later',
-        'close', 'dismiss', 'skip', 'cancel', 'not interested',
-        'continue without', 'no discount', 'i\'ll pass'
-      ];
-      
-      const allButtons = Array.from(document.querySelectorAll('button, [role="button"], a[href="#"]'));
-      for (const btn of allButtons) {
-        const el = btn as HTMLElement;
-        const text = el.innerText?.toLowerCase().trim();
-        if (text && el.offsetParent !== null) { // Is visible
-          for (const dismissText of dismissTexts) {
-            if (text === dismissText || text.includes(dismissText)) {
-              console.log('[POPUP] Clicking dismiss button:', text);
-              el.click();
-              found = true;
-              break;
-            }
-          }
-          if (found) break;
-        }
-      }
-      
-      // Brief pause after clicking
-      if (found) return found;
-      
-      // ============================================================
-      // STEP 2: Cookie consent banners (click OK/Accept)
-      // ============================================================
-      const cookieSelectors = [
-        '#onetrust-accept-btn-handler',
-        '[id*="cookie"] button[id*="accept"]',
-        '[id*="cookie"] button[id*="ok"]',
-        '[class*="cookie"] button',
-        '[class*="consent"] button[class*="accept"]',
-        '[class*="gdpr"] button',
-        'button[data-cookie-accept]',
-      ];
-      
-      for (const selector of cookieSelectors) {
-        try {
-          const el = document.querySelector(selector) as HTMLElement;
-          if (el && el.offsetParent !== null) {
-            console.log('[POPUP] Clicking cookie consent:', selector);
-            el.click();
-            found = true;
-          }
-        } catch { /* ignore */ }
-      }
-      
-      // ============================================================
-      // STEP 3: Modal X/Close buttons by aria-label or class
-      // ============================================================
-      const closeSelectors = [
-        '[aria-label="Close"]',
-        '[aria-label="close"]',
-        '[aria-label="Close modal"]',
-        '[aria-label="Close dialog"]',
-        '[aria-label="Dismiss"]',
-        'button[class*="close"]',
-        'button[class*="Close"]',
-        '[class*="modal-close"]',
-        '[class*="popup-close"]',
-        '[data-dismiss="modal"]',
-        '[data-testid="close-button"]',
-        '[data-testid="modal-close"]',
-      ];
-      
-      for (const selector of closeSelectors) {
-        try {
-          const el = document.querySelector(selector) as HTMLElement;
-          if (el && el.offsetParent !== null) {
-            console.log('[POPUP] Clicking close button:', selector);
-            el.click();
-            found = true;
-          }
-        } catch { /* ignore */ }
-      }
-      
-      // ============================================================
-      // STEP 4: Find X icons (SVG) inside modal overlays
-      // ============================================================
-      const modalContainers = Array.from(document.querySelectorAll(
-        '[class*="modal"], [class*="Modal"], [class*="popup"], [class*="Popup"], ' +
-        '[class*="overlay"], [class*="Overlay"], [role="dialog"], [aria-modal="true"]'
-      ));
-      
-      for (const modal of modalContainers) {
-        // Look for buttons containing SVG (likely X icons)
-        const buttons = Array.from(modal.querySelectorAll('button'));
-        for (const btn of buttons) {
-          const el = btn as HTMLElement;
-          // Check if button contains an SVG and is in top area of modal (close buttons usually are)
-          if (el.querySelector('svg') && el.offsetParent !== null) {
-            const rect = el.getBoundingClientRect();
-            const modalRect = (modal as HTMLElement).getBoundingClientRect();
-            // If button is in top 100px of modal, likely a close button
-            if (rect.top - modalRect.top < 100) {
-              console.log('[POPUP] Clicking SVG close button in modal');
-              el.click();
-              found = true;
-              break;
+  // CRITICAL: Wait for delayed popups to appear (Steve Madden shows after ~2s)
+  await new Promise(r => setTimeout(r, 2000));
+  
+  // Helper to check if element is truly visible
+  const isElementVisible = (el: HTMLElement): boolean => {
+    const style = window.getComputedStyle(el);
+    return style.display !== 'none' && 
+           style.visibility !== 'hidden' && 
+           style.opacity !== '0' &&
+           el.offsetWidth > 0 && 
+           el.offsetHeight > 0;
+  };
+  
+  // Try up to 3 times (some popups have animations or multiple layers)
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const dismissed = await page.evaluate(() => {
+        // Helper function for visibility (defined inside evaluate)
+        const checkVisible = (el: HTMLElement): boolean => {
+          const style = window.getComputedStyle(el);
+          return style.display !== 'none' && 
+                 style.visibility !== 'hidden' && 
+                 style.opacity !== '0' &&
+                 el.offsetWidth > 0 && 
+                 el.offsetHeight > 0;
+        };
+        
+        // ============================================================
+        // STEP 1: Press Escape key first (universal dismiss)
+        // ============================================================
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        
+        // ============================================================
+        // STEP 2: Find dismiss buttons by TEXT content
+        // ============================================================
+        const dismissTexts = [
+          'no, thanks', 'no thanks', 'no, thank you', 'no thank you',
+          'decline', 'decline offer', 'not now', 'maybe later',
+          'close', 'dismiss', 'skip', 'cancel', 'not interested',
+          'continue without', 'no discount', "i'll pass", 'x',
+          'continue shopping', 'no thanks, i prefer full price'
+        ];
+        
+        // Check ALL clickable elements, not just buttons
+        const clickables = Array.from(document.querySelectorAll(
+          'button, [role="button"], a, span[onclick], div[onclick], [tabindex="0"], [data-dismiss]'
+        ));
+        
+        for (const el of clickables) {
+          const element = el as HTMLElement;
+          const text = element.innerText?.toLowerCase().trim().replace(/\s+/g, ' ');
+          
+          if (text && checkVisible(element)) {
+            for (const dismissText of dismissTexts) {
+              if (text === dismissText || text.includes(dismissText)) {
+                console.log('[POPUP] Clicking dismiss button:', text);
+                element.click();
+                return true;
+              }
             }
           }
         }
-        if (found) break;
-      }
-      
-      return found;
-    });
-    
-    if (dismissed) {
-      console.log('  [AI] ✓ Popup dismissed via JS');
-      await new Promise(r => setTimeout(r, 500)); // Let popup animation complete
-      
-      // Check for additional popups (sometimes there are multiple)
-      await page.evaluate(() => {
-        const dismissTexts = ['no, thanks', 'no thanks', 'decline', 'close', 'ok', 'accept'];
-        const buttons = Array.from(document.querySelectorAll('button, [role="button"]'));
-        for (const btn of buttons) {
-          const el = btn as HTMLElement;
-          const text = el.innerText?.toLowerCase().trim();
-          if (text && el.offsetParent !== null && dismissTexts.some(t => text.includes(t))) {
-            el.click();
-            break;
+        
+        // ============================================================
+        // STEP 3: Cookie consent banners
+        // ============================================================
+        const cookieSelectors = [
+          '#onetrust-accept-btn-handler',
+          '[id*="cookie"] button[id*="accept"]',
+          '[class*="cookie"] button',
+          '[class*="consent"] button[class*="accept"]',
+          '[class*="gdpr"] button',
+        ];
+        
+        for (const selector of cookieSelectors) {
+          try {
+            const el = document.querySelector(selector) as HTMLElement;
+            if (el && checkVisible(el)) {
+              console.log('[POPUP] Clicking cookie consent:', selector);
+              el.click();
+              return true;
+            }
+          } catch { /* ignore */ }
+        }
+        
+        // ============================================================
+        // STEP 4: Modal X/Close buttons by aria-label or class
+        // ============================================================
+        const closeSelectors = [
+          '[aria-label="Close"]',
+          '[aria-label="close"]',
+          '[aria-label="Close modal"]',
+          '[aria-label="Close dialog"]',
+          '[aria-label="Dismiss"]',
+          'button[class*="close"]',
+          'button[class*="Close"]',
+          '[class*="modal-close"]',
+          '[class*="popup-close"]',
+          '[data-dismiss="modal"]',
+          '[data-testid="close-button"]',
+          '[data-testid="modal-close"]',
+          // Site-specific selectors
+          '.modal__close',
+          '.popup__close',
+          '.dialog__close',
+        ];
+        
+        for (const selector of closeSelectors) {
+          try {
+            const el = document.querySelector(selector) as HTMLElement;
+            if (el && checkVisible(el)) {
+              console.log('[POPUP] Clicking close button:', selector);
+              el.click();
+              return true;
+            }
+          } catch { /* ignore */ }
+        }
+        
+        // ============================================================
+        // STEP 5: Find X icons (SVG) inside modal overlays
+        // ============================================================
+        const modalContainers = Array.from(document.querySelectorAll(
+          '[class*="modal"], [class*="Modal"], [class*="popup"], [class*="Popup"], ' +
+          '[class*="overlay"], [class*="Overlay"], [role="dialog"], [aria-modal="true"]'
+        ));
+        
+        for (const modal of modalContainers) {
+          const modalEl = modal as HTMLElement;
+          if (!checkVisible(modalEl)) continue;
+          
+          // Look for buttons containing SVG (likely X icons)
+          const buttons = Array.from(modal.querySelectorAll('button, [role="button"]'));
+          for (const btn of buttons) {
+            const el = btn as HTMLElement;
+            // Check if button contains an SVG or × character
+            const hasCloseIcon = el.querySelector('svg') || el.innerText?.includes('×') || el.innerText?.includes('✕');
+            if (hasCloseIcon && checkVisible(el)) {
+              const rect = el.getBoundingClientRect();
+              const modalRect = modalEl.getBoundingClientRect();
+              // If button is in top 120px of modal, likely a close button
+              if (rect.top - modalRect.top < 120) {
+                console.log('[POPUP] Clicking SVG/X close button in modal');
+                el.click();
+                return true;
+              }
+            }
           }
         }
+        
+        // ============================================================
+        // STEP 6: Click overlay backdrop (dismiss by clicking outside)
+        // ============================================================
+        const overlays = document.querySelectorAll(
+          '[class*="overlay"], [class*="backdrop"], [class*="Overlay"], [class*="Backdrop"]'
+        );
+        for (const overlay of Array.from(overlays)) {
+          const style = window.getComputedStyle(overlay as Element);
+          if (style.position === 'fixed' && style.display !== 'none') {
+            console.log('[POPUP] Clicking overlay backdrop');
+            (overlay as HTMLElement).click();
+            return true;
+          }
+        }
+        
+        return false;
       });
-      await new Promise(r => setTimeout(r, 300));
-      return;
+      
+      if (dismissed) {
+        console.log(`  [AI] ✓ Popup dismissed (attempt ${attempt + 1})`);
+        await new Promise(r => setTimeout(r, 500)); // Let animation complete
+      } else {
+        // No popup found, exit loop
+        console.log('  [AI] No popup detected');
+        break;
+      }
+    } catch (e: any) {
+      console.log('  [AI] JS popup check error:', e.message?.substring(0, 50));
+      break;
     }
-  } catch (e: any) {
-    console.log('  [AI] JS popup check error:', e.message?.substring(0, 50));
   }
   
-  // Brief wait for any popups to appear
-  await new Promise(r => setTimeout(r, 500));
-  
-  // SLOW FALLBACK: Use Stagehand with better instruction
+  // Final Escape key press via Playwright (more reliable)
   try {
-    const popupPromise = stagehand.act(
-      "If there is a popup, modal, or overlay blocking the page, close it by clicking 'No Thanks', 'No, Thanks', 'Decline', 'Close', 'X', or similar dismiss button. Do NOT click 'Yes', 'Subscribe', 'Sign Up', or accept buttons. If nothing is blocking, do nothing."
-    );
-    
-    // 5 second timeout for popup handling
-    await Promise.race([
-      popupPromise,
-      new Promise((_, reject) => setTimeout(() => reject(new Error('popup timeout')), 5000))
-    ]);
-    console.log('  [AI] ✓ Popup check complete');
-  } catch (e: any) {
-    // Expected - either no popup, timeout, or schema error
-    if (e.message?.includes('timeout')) {
-      console.log('  [AI] Popup check timed out, continuing...');
-    }
-  }
-  
-  await new Promise(r => setTimeout(r, 200));
+    await page.keyboard.press('Escape');
+    await new Promise(r => setTimeout(r, 200));
+  } catch { /* ignore */ }
 }
 
 // ============================================================================
@@ -811,43 +830,71 @@ async function generateNextQuery(
 ): Promise<string> {
   const { domain, brandSummary, attempt, previousQueries } = context;
   
-  // Real-World Commerce Search Query Generator (Progression-Based)
-  // Strategy: Start simple, progressively add qualifiers/friction
+  // ADVERSARIAL Query Generator - designed to EXPOSE search weaknesses
+  // Strategy: Start conversational, progress to ambiguous/challenging
   const getProgressionPrompt = (attempt: number, brandSummary: string) => {
     let searchStrategy = '';
     
     if (attempt === 1) {
-      searchStrategy = `ATTEMPT 1 (Simple): Generate a basic, single-concept search term that a real customer would type. This should be a straightforward product search - just the main thing they're looking for, nothing fancy.
-Examples: "running shoes", "moisturiser for sensitive skin", "coffee table", "blue dress"`;
+      // Start with a QUESTION or problem statement, NOT a product name
+      searchStrategy = `ATTEMPT 1 (Question/Problem): Generate a conversational question or problem statement that a confused/unsure customer would type. They don't know what they need, they know what problem they have.
+
+GOOD EXAMPLES:
+- "what should I wear to a wedding"
+- "my feet hurt after work"  
+- "gift ideas for runners"
+- "help me look professional"
+- "need something waterproof"
+
+BAD EXAMPLES (too easy):
+- "running shoes" (direct product name)
+- "black boots" (product + attribute)
+- "men's sneakers" (category search)`;
     } else if (attempt === 2) {
-      searchStrategy = `ATTEMPT 2 (One Qualifier): Add one realistic qualifier that a customer might naturally include. This should feel like a normal follow-up search they'd try if the first one didn't quite work.
-Examples: "running shoes for flat feet", "moisturiser without fragrance", "coffee table wood", "blue wedding dress"`;
+      // Use synonyms, slang, or regional terms
+      searchStrategy = `ATTEMPT 2 (Synonym/Slang): Use informal language, synonyms, or terms that might NOT be in the product data. Real customers don't use marketing language.
+
+GOOD EXAMPLES:
+- "kicks" instead of "sneakers"
+- "comfy trainers" (UK term)
+- "something that won't fall apart"
+- "stuff for the gym"
+- "cute but practical"
+
+BAD EXAMPLES (too standard):
+- "athletic shoes"
+- "casual footwear" 
+- "leather boots"`;
     } else if (attempt === 3) {
-      searchStrategy = `ATTEMPT 3 (Problem-Focused): Frame it around a real problem or situation the customer is solving. What's the actual friction they're experiencing?
-Examples: "shoes that won't hurt my feet", "skincare for acne breakouts", "furniture for small spaces", "dress that won't wrinkle"`;
-    } else if (attempt === 4) {
-      searchStrategy = `ATTEMPT 4 (Specific Scenario): Include context about when/where/why they need this. Think about the actual use case.
-Examples: "comfortable shoes for work all day", "moisturiser for dry skin in winter", "lightweight coffee table for moving", "dress for a long flight"`;
-    } else {
-      searchStrategy = `ATTEMPT 5 (Challenging): Combine multiple realistic factors - what would a demanding customer search for after other attempts failed?
-Examples: "comfortable shoes that look professional but won't hurt my feet", "lightweight moisturiser for sensitive skin that doesn't feel greasy"`;
+      // Multi-intent or ambiguous queries
+      searchStrategy = `ATTEMPT 3 (Ambiguous/Multi-Intent): Create a search that could be interpreted multiple ways, or asks for conflicting attributes that are hard to match.
+
+GOOD EXAMPLES:
+- "something fancy but affordable"
+- "looks good with jeans and suits"
+- "stylish but won't make my feet hurt"
+- "gift for someone hard to shop for"
+- "casual and professional"
+
+BAD EXAMPLES:
+- Any single-attribute search
+- Direct product categories`;
     }
 
-    return `You are a real customer shopping at: ${brandSummary}
+    return `You are TESTING a search engine for: ${brandSummary}
 
-Your task: Generate ONE realistic search query that a normal human would type into this site's search bar.
+Your goal: Generate a CHALLENGING search query that might EXPOSE weaknesses in their search. You're not trying to find products easily - you're probing for failure.
 
 ${searchStrategy}
 
-Guidelines:
-- Sound natural and conversational - like you're typing in a search bar, not writing an ad
-- Stay within the realm of what this brand actually sells
-- Use everyday language, not marketing jargon
-- If you wouldn't actually type it yourself, don't suggest it
-- Keep it under 10 words ideally
-- Don't stack too many qualifiers together
+CRITICAL RULES:
+- Do NOT use obvious product category words like "shoes", "boots", "sneakers", "sandals" directly
+- Think: what would a real person type when they're confused, rushed, or don't know the proper term?
+- Avoid any marketing/catalog language
+- Keep it under 8 words
+- Must be something a real human would actually search
 
-Output: Just the search query itself. One line. No explanation, no quotes, no alternatives.`;
+Output: Just the search query itself. One line. No explanation.`;
   };
 
   const prompt = getProgressionPrompt(attempt, brandSummary);
@@ -883,49 +930,49 @@ Output: Just the search query itself. One line. No explanation, no quotes, no al
     console.error(`  [AI] Query generation failed: ${e.message}`);
   }
   
-  // Fallback queries based on brand category with multi-constraint approach
+  // ADVERSARIAL fallback queries - designed to challenge search
   const brandLower = brandSummary.toLowerCase();
   let fallbacks: string[];
   
   if (brandLower.includes('shoe') || brandLower.includes('footwear') || brandLower.includes('sneaker')) {
     fallbacks = [
-      'shoes that don\'t irritate for everyday wear',
-      'sneakers I can wear all day without pain',
-      'shoes for travel that pack light',
-      'running shoes for someone with flat feet',
-      'slip-ons that work for both casual and work'
+      'my feet hurt help',
+      'something for a wedding',
+      'gift for my boyfriend',
+      'what goes with jeans',
+      'need comfy kicks asap'
     ];
   } else if (brandLower.includes('underwear') || brandLower.includes('boxer') || brandLower.includes('brief')) {
     fallbacks = [
-      'boxers that stay put during workouts',
-      'underwear for hot weather without riding up',
-      'briefs that are comfortable for all-day wear',
-      'boxer briefs that don\'t show through',
-      'underwear for sensitive skin without irritation'
+      'won\'t ride up',
+      'stuff for the gym',
+      'something breathable',
+      'gift for husband',
+      'what size am i'
     ];
   } else if (brandLower.includes('cloth') || brandLower.includes('apparel') || brandLower.includes('fashion')) {
     fallbacks = [
-      'outfit I can wear to work and dinner',
-      'dress that\'s both comfortable and professional',
-      'jacket that works in multiple seasons',
-      'casual clothes for someone who hates tight fits',
-      'clothes that are stylish but not high maintenance'
+      'what to wear to interview',
+      'need outfit asap',
+      'gift for mom',
+      'looks good but comfy',
+      'casual but professional'
     ];
   } else if (brandLower.includes('swim') || brandLower.includes('beach')) {
     fallbacks = [
-      'swimsuit that doesn\'t ride up or slip',
-      'beachwear for someone with sensitive skin',
-      'cover-up that\'s stylish and actually covers',
-      'swim shorts that dry quickly for water sports',
-      'swimwear that works for lap swimming'
+      'vacation next week help',
+      'won\'t fall off in waves',
+      'flattering for curvy',
+      'something modest',
+      'gift for sister beach trip'
     ];
   } else {
     fallbacks = [
-      'product that works for everyday use and travel',
-      'something I can wear that looks good and feels good',
-      'items that work for both casual and professional',
-      'gift that\'s useful for someone active',
-      'product that won\'t irritate sensitive skin'
+      'need gift ideas',
+      'help me find something',
+      'what\'s popular right now',
+      'something comfortable',
+      'works for travel'
     ];
   }
   
