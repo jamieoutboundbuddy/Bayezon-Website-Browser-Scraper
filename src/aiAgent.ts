@@ -1009,7 +1009,7 @@ Return a JSON object with:
             {
               type: 'image_url',
               image_url: {
-                url: `data: image / png; base64, ${screenshotBase64} `,
+                url: `data:image/png;base64,${screenshotBase64}`,
                 detail: 'low'
               }
             }
@@ -1059,7 +1059,7 @@ Return a JSON object with:
               {
                 type: 'image_url',
                 image_url: {
-                  url: `data: image / png; base64, ${screenshotBase64} `,
+                  url: `data:image/png;base64,${screenshotBase64}`,
                   detail: 'low'
                 }
               }
