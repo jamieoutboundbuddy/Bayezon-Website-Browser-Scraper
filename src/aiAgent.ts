@@ -922,8 +922,8 @@ Output: Just the search query itself. One line. No explanation.`;
     const response = await openai.chat.completions.create({
       model: 'gpt-5-mini',
       messages: [{ role: 'user', content: prompt }],
-      max_tokens: 150,
-      temperature: 0.85  // Higher temp for variety and more natural queries
+      max_completion_tokens: 150
+      // temperature removed - gpt-5-mini only supports default value of 1
     });
 
     const content = response.choices[0]?.message?.content || '';
@@ -1034,8 +1034,8 @@ Return JSON:
           ]
         }
       ],
-      max_completion_tokens: 400,
-      temperature: 0
+      max_completion_tokens: 400
+      // temperature removed - gpt-5-mini only supports default value of 1
     });
 
     const content = response.choices[0]?.message?.content || '';
