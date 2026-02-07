@@ -997,99 +997,93 @@ Return a JSON object with:
 - products_shown: (string[]) List of product titles.
 - reasoning: (string) Explain strictly why it passed or failed.E.g. "Results were just generic heels, not suitable for dancing."`;
 
-  try {
-    // Use gpt-5-mini for vision evaluation (better reasoning, supports images)
-    const response = await openai.chat.completions.create({
-      model: 'gpt-5-mini',
-      messages: [
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: prompt },
-            {
-              type: 'image_url',
-              image_url: {
-                url: `data:image/png;base64,${screenshotBase64}`,
-                detail: 'low'
-              }
-            }
-          ]
+  // Helper to parse evaluation response
+  const parseEvalResponse = (content: string) => {
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      const data = JSON.parse(jsonMatch[0]);
+      return {
+        isSignificantFailure: data.significant_failure === true,
+        resultCount: data.result_count ?? null,
+        relevantResultCount: data.relevant_result_count ?? 0,
+        firstRelevantPosition: data.first_relevant_position ?? null,
+        productsFound: data.products_shown ?? [],
+        reasoning: data.reasoning ?? 'No reasoning provided'
+      };
+    }
+    return null;
+  };
+
+  const imageMessage = {
+    role: 'user' as const,
+    content: [
+      { type: 'text' as const, text: prompt },
+      {
+        type: 'image_url' as const,
+        image_url: {
+          url: `data:image/png;base64,${screenshotBase64}`,
+          detail: 'low' as const
         }
-      ],
-      max_completion_tokens: 400
-      // temperature removed - gpt-5-mini only supports default value of 1
+      }
+    ]
+  };
+
+  // Try gpt-4o first (proven reliable with vision)
+  try {
+    console.log(`  [AI] Evaluating with gpt-4o...`);
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [imageMessage],
+      max_completion_tokens: 400,
+      temperature: 0
     });
 
     const content = response.choices[0]?.message?.content || '';
-    console.log(`  [AI] Evaluation raw response(first 200 chars): ${content.substring(0, 200)} `);
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    console.log(`  [AI] Evaluation raw response (first 200 chars): ${content.substring(0, 200)}`);
 
-    if (jsonMatch) {
-      try {
-        const data = JSON.parse(jsonMatch[0]);
-        console.log(`  [AI] Evaluation parsed successfully`);
-        return {
-          isSignificantFailure: data.significant_failure === true,
-          resultCount: data.result_count ?? null,
-          relevantResultCount: data.relevant_result_count ?? 0,
-          firstRelevantPosition: data.first_relevant_position ?? null,
-          productsFound: data.products_shown ?? [],
-          reasoning: data.reasoning ?? 'No reasoning provided'
-        };
-      } catch (parseError: any) {
-        console.error(`  [AI] JSON parse error: ${parseError.message} `);
-        console.error(`  [AI] Raw JSON attempted: ${jsonMatch[0].substring(0, 200)} `);
+    if (content.trim()) {
+      const result = parseEvalResponse(content);
+      if (result) {
+        console.log(`  [AI] Evaluation parsed successfully (gpt-4o)`);
+        return result;
       }
+      console.error(`  [AI] No JSON found in gpt-4o response`);
     } else {
-      console.error(`  [AI] No JSON found in response`);
+      console.error(`  [AI] Empty response from gpt-4o`);
     }
   } catch (e: any) {
-    console.error(`  [AI] Evaluation failed with gpt - 4.1 - mini: ${e.message} `);
-    console.error(`  [AI] Full error: `, e);
-    // If we can't evaluate, try with gpt-4o as fallback
-    console.log(`  [AI] Trying fallback with gpt - 4o...`);
-    try {
-      const fallbackResponse = await openai.chat.completions.create({
-        model: 'gpt-4o',
-        messages: [
-          {
-            role: 'user',
-            content: [
-              { type: 'text', text: prompt },
-              {
-                type: 'image_url',
-                image_url: {
-                  url: `data:image/png;base64,${screenshotBase64}`,
-                  detail: 'low'
-                }
-              }
-            ]
-          }
-        ],
-        max_completion_tokens: 400,
-        temperature: 0
-      });
+    console.error(`  [AI] gpt-4o evaluation failed: ${e.message}`);
+  }
 
-      const content = fallbackResponse.choices[0]?.message?.content || '';
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
+  // Fallback to gpt-4o-mini
+  try {
+    console.log(`  [AI] Trying fallback with gpt-4o-mini...`);
+    const fallbackResponse = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [imageMessage],
+      max_completion_tokens: 400,
+      temperature: 0
+    });
 
-      if (jsonMatch) {
-        const data = JSON.parse(jsonMatch[0]);
-        return {
-          isSignificantFailure: data.significant_failure === true,
-          resultCount: data.result_count ?? null,
-          relevantResultCount: data.relevant_result_count ?? 0,
-          firstRelevantPosition: data.first_relevant_position ?? null,
-          productsFound: data.products_shown ?? [],
-          reasoning: data.reasoning ?? 'No reasoning provided'
-        };
+    const content = fallbackResponse.choices[0]?.message?.content || '';
+    console.log(`  [AI] Fallback raw response (first 200 chars): ${content.substring(0, 200)}`);
+
+    if (content.trim()) {
+      const result = parseEvalResponse(content);
+      if (result) {
+        console.log(`  [AI] Evaluation parsed successfully (gpt-4o-mini)`);
+        return result;
       }
-    } catch {
-      // Final fallback
+      console.error(`  [AI] No JSON found in gpt-4o-mini response`);
+    } else {
+      console.error(`  [AI] Empty response from gpt-4o-mini`);
     }
+  } catch (e: any) {
+    console.error(`  [AI] gpt-4o-mini fallback also failed: ${e.message}`);
   }
 
   // Default to not a significant failure if we can't evaluate
+  console.error(`  [AI] Both models failed to evaluate - returning default`);
   return {
     isSignificantFailure: false,
     resultCount: null,
