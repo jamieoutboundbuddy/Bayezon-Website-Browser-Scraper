@@ -756,12 +756,29 @@ export async function executeSearchWithFallbacks(
   // LAYER 5: URL Fallback
   // ========================================================================
   console.log(`  [SEARCH] Layer 5: Trying direct URL navigation...`);
+
+  // Build site-specific patterns based on domain
+  const domainLower = domain.toLowerCase();
   const searchUrlPatterns = [
     `/search?q=${encodeURIComponent(query)}`,
     `/search?query=${encodeURIComponent(query)}`,
     `/search?s=${encodeURIComponent(query)}`,
     `?q=${encodeURIComponent(query)}`,
-    `/pages/search-results?q=${encodeURIComponent(query)}`
+    `/pages/search-results?q=${encodeURIComponent(query)}`,
+    // Department stores / SPA sites
+    `/shop/search?keyword=${encodeURIComponent(query)}`,
+    `/s/${encodeURIComponent(query)}`,
+    `/catalogsearch/result/?q=${encodeURIComponent(query)}`,
+    `/search/${encodeURIComponent(query)}`,
+    // Site-specific patterns
+    ...(domainLower.includes('macys') ? [
+      `/shop/search?keyword=${encodeURIComponent(query)}`,
+      `/shop/featured/${encodeURIComponent(query)}`
+    ] : []),
+    ...(domainLower.includes('famousfootwear') ? [
+      `/search/${encodeURIComponent(query)}`,
+      `/#q=${encodeURIComponent(query)}`
+    ] : []),
   ];
 
   for (const pattern of searchUrlPatterns) {
@@ -1280,7 +1297,7 @@ export async function aiFullAnalysis(
     let navSuccess = false;
     for (let i = 0; i < 3; i++) {
       try {
-        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 });
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeoutMs: 20000 });
         navSuccess = true;
         break;
       } catch (e: any) {
@@ -1698,3 +1715,139 @@ Only output the JSON, no explanation.`
     // Build the journey narrative
     const journeySteps = queriesTested.map((q, i) => {
       const status = q.passed ? '✅' : '❌';
+      const resultText = q.resultCount !== null
+        ? `**${q.resultCount} returned, ${q.relevantResultCount} relevant**`
+        : 'unknown results';
+      const positionText = q.firstRelevantPosition
+        ? ` (First relevant: #${q.firstRelevantPosition})`
+        : '';
+      return `${i + 1}. "${q.query}" → ${status} ${resultText}${positionText}${q.passed ? '' : ' - FAILED'}`;
+    });
+
+    let narrativeSummary = '';
+    if (proofQuery) {
+      const passedCount = queriesTested.filter(q => q.passed).length;
+      narrativeSummary = `We tested ${domain}'s search with ${queriesTested.length} progressively harder queries.\n\n` +
+        journeySteps.join('\n') + '\n\n' +
+        `CONCLUSION: Search worked for ${passedCount} simple queries but failed on "${proofQuery}". ` +
+        `This indicates the search cannot handle ${failedOnAttempt && failedOnAttempt > 2 ? 'abstract/themed' : 'natural language'} queries that real shoppers commonly use.`;
+    } else {
+      narrativeSummary = `We tested ${domain}'s search with ${queriesTested.length} queries of increasing difficulty.\n\n` +
+        journeySteps.join('\n') + '\n\n' +
+        `CONCLUSION: Search handled all test queries well. This site has robust search capabilities.`;
+    }
+
+    // Generate LLM insight - a richer explanation of what this means
+    let queryInsight = '';
+    try {
+      const insightPrompt = proofQuery
+        ? `You are a search optimization expert analyzing an e-commerce site (${domain}, selling ${brandSummary}).
+
+We tested their search with ${queriesTested.length} queries. It handled ${queriesTested.filter(q => q.passed).length} queries but FAILED on: "${proofQuery}"
+Failure reason: ${failureReasoning}
+
+Write a 2-3 sentence insight explaining:
+1. Why this failure matters (lost sales opportunity)
+2. The type of customer behavior this represents (people search like this!)
+3. The business impact (concrete, e.g., "shoppers leave empty-handed")
+
+Be direct, conversational, and compelling. No jargon. This is for a sales pitch showing why they need better search.`
+        : `You are a search optimization expert. ${domain} (selling ${brandSummary}) passed all ${queriesTested.length} test queries.
+
+Write a 1-2 sentence summary acknowledging their search handles natural language well, but note there may still be edge cases worth exploring.`;
+
+      const insightResponse = await openai.chat.completions.create({
+        model: 'gpt-4.1-mini',
+        messages: [{ role: 'user', content: insightPrompt }],
+        max_tokens: 200,
+        temperature: 0.7
+      });
+
+      queryInsight = insightResponse.choices[0]?.message?.content?.trim() || '';
+    } catch (e: any) {
+      console.log(`  [AI] Insight generation failed: ${e.message}`);
+      // Fallback insight
+      queryInsight = proofQuery
+        ? `When a customer searches "${proofQuery}" and gets zero results, they don't try again—they leave. This represents real revenue walking out the door.`
+        : 'This site handles natural language search well across our test queries.';
+    }
+
+    // Generate "queries that would work" (simple keyword-based)
+    // Use the brand name (cleaned) instead of the raw AI-generated brandSummary
+    const brandKeyword = brandName.split(/\s+/)[0].toLowerCase();
+    const queriesThatWork = [
+      `${brandKeyword}`,
+      `new arrivals`,
+      `sale items`,
+      `best sellers`,
+      `${brandKeyword} for men`,
+      `${brandKeyword} for women`
+    ].filter(q => q.length > 2 && q.length < 40);
+
+    console.log(`\n[ADVERSARIAL] ========================================`);
+    console.log(`[ADVERSARIAL] VERDICT: ${verdict}`);
+    console.log(`[ADVERSARIAL] Queries tested: ${queriesTested.length}`);
+    console.log(`[ADVERSARIAL] Failed on: ${failedOnAttempt || 'none'}`);
+    console.log(`[ADVERSARIAL] Duration: ${durationMs}ms`);
+    console.log(`[ADVERSARIAL] ========================================\n`);
+
+    // Copy the failure screenshot to 'results.png' for frontend compatibility
+    const finalResultsPath = getArtifactPath(jobId, domain, 'results', 'png');
+    if (failureScreenshotPath && fs.existsSync(failureScreenshotPath)) {
+      fs.copyFileSync(failureScreenshotPath, finalResultsPath);
+    } else if (queriesTested.length > 0 && queriesTested[queriesTested.length - 1].screenshotPath) {
+      // Use last tested query's screenshot
+      fs.copyFileSync(queriesTested[queriesTested.length - 1].screenshotPath!, finalResultsPath);
+    }
+
+    // Return in legacy format for compatibility
+    const lastTest = queriesTested[queriesTested.length - 1];
+
+    return {
+      siteProfile,
+      nlQuery: proofQuery || lastTest?.query || '',
+      kwQuery: '', // No keyword search
+      searchResults: {
+        naturalLanguage: {
+          query: proofQuery || lastTest?.query || '',
+          screenshotPath: finalResultsPath,
+          resultCount: lastTest?.resultCount ?? null,
+          productsFound: lastTest?.productsFound || [],
+          searchSuccess: !proofQuery,
+          aiObservations: reason
+        },
+        keyword: {
+          query: '',
+          screenshotPath: '',
+          resultCount: null,
+          productsFound: [],
+          searchSuccess: false,
+          aiObservations: 'Keyword search removed - using adversarial testing'
+        },
+        homepageScreenshotPath
+      },
+      comparison: {
+        nlRelevance: proofQuery ? 'none' : 'high',
+        kwRelevance: 'none',
+        verdict,
+        reason
+      },
+      adversarial: {
+        queriesTested,
+        failedOnAttempt,
+        proofQuery
+      },
+      // NEW: Clean summary data
+      summary: {
+        narrative: narrativeSummary,
+        queriesThatWork,
+        journeySteps,
+        queryInsight
+      }
+    };
+
+  } catch (error) {
+    await stagehand.close();
+    throw error;
+  }
+}

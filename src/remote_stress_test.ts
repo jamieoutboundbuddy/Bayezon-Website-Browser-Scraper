@@ -35,13 +35,19 @@ async function runTest() {
         const startTime = Date.now();
 
         try {
+            // 5-minute timeout per site (some analyses take 3-4 mins)
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 5 * 60 * 1000);
+
             const response = await fetch(`${baseUrl}/api/analyze`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ domain })
+                body: JSON.stringify({ domain }),
+                signal: controller.signal
             });
+            clearTimeout(timeout);
 
             let data;
             try {
