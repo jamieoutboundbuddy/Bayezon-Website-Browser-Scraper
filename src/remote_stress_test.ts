@@ -1,7 +1,7 @@
 import { parse } from 'csv-parse/sync';
 import fs from 'fs';
 
-const TARGET_URL = process.argv[2] || process.env.RAILWAY_URL;
+const TARGET_URL: string = process.argv[2] || process.env.RAILWAY_URL || '';
 
 if (!TARGET_URL) {
     console.error("Please provide the target URL (e.g., https://my-app.up.railway.app) as the first argument or set RAILWAY_URL env var.");
@@ -62,7 +62,9 @@ async function runTest() {
                     `✅ ${domain}: SUCCESS (${duration.toFixed(1)}s)`,
                     `   Verdict: ${data.comparison?.verdict}`,
                     data.confidence ? `   Confidence: ${data.confidence.level}` : null,
-                    data.comparison?.verdictReason ? `   Reason: ${data.comparison.verdictReason}` : null
+                    data.comparison?.verdictReason ? `   Reason: ${data.comparison.verdictReason}` : null,
+                    data.jobId ? `   Job ID: ${data.jobId}` : null,
+                    data.jobId ? `   Screenshot: ${baseUrl}/artifacts/${data.jobId}/${domain.replace(/^www\./, '')}/screens/results.png` : null
                 ].filter(Boolean).join('\n');
                 console.log(msg);
 
