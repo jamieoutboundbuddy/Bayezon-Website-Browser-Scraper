@@ -857,13 +857,16 @@ GOOD EXAMPLES (Hyper-Realistic Hooks):
 - "sweat proof gym set" (Performance need)
 - "bra that doesnt show through tshirts" (Specific constraint)
 - "sheets specifically for hot sleepers" (Benefit)
+- "shoes that wont destroy my feet at a wedding" (Real pain point)
 
 BAD EXAMPLES:
 - "shoes for plantar fasciitis" (Too medical/niche)
 - "comfortable clothes" (Too generic)
 - "items for problem" (Robot speak)
+- "stylish shoes for summer" (Nobody says 'stylish' — that's marketing speak)
+- "elegant evening wear" (Sounds like a catalog, not a real person)
 
-The query should sound like a REAL person typing their specific need/context into the search bar.`;
+The query should sound like a REAL person typing their specific need/context into the search bar. Think text message, not magazine ad.`;
     } else if (attempt === 2) {
       // THE CONVERSATIONAL: Vibe/Implied Need
       searchStrategy = `ATTEMPT 2 (THE CONVERSATIONAL - Vibe/Implied Need):
@@ -880,9 +883,11 @@ GOOD EXAMPLES (Hyper-Realistic Hooks):
 BAD EXAMPLES:
 - "comfortable heels" (Too basic)
 - "party clothes" (Too generic)
-- "stylish shoes" (Subjective but weak)
+- "stylish shoes" (BANNED — nobody talks like this)
+- "chic outfit for brunch" (Too curated — real people say 'cute outfit for brunch')
+- "elegant dress for evening" (Catalog language, not human language)
 
-The query should imply a set of product features (e.g. "dance in" = block heel/straps) without listing them.`;
+The query should imply a set of product features (e.g. "dance in" = block heel/straps) without listing them. Write like you're texting a friend, not writing ad copy.`;
     } else if (attempt === 3) {
       // THE HUNTER: Specific but Human
       searchStrategy = `ATTEMPT 3 (THE HUNTER - Specific but Human):
@@ -899,6 +904,8 @@ GOOD EXAMPLES (Hyper-Realistic Hooks):
 BAD EXAMPLES:
 - "premium genuine leather ankle boots waterproof" (Keyword stuffing)
 - "women's footwear black size 9" (Robot speak)
+- "stylish sustainable sneakers" (Marketing buzzwords — real people say 'cute sneakers that are eco friendly')
+- "trendy summer clothes" (Nobody searches this way)
 
 The query should be specific but sound like a text message, not a catalog entry.`;
     }
@@ -908,11 +915,14 @@ The query should be specific but sound like a text message, not a catalog entry.
 ${searchStrategy}
 
 CRITICAL RULES:
-- Sound like a REAL human customer searching (not a product catalog)
+- Sound like a REAL human customer searching (not a product catalog or ad)
 - Keep it under 10 words (usually 3-6 words is best)
-- Use natural language people actually type
+- Use natural language people actually type into search bars
 - NO medical terms unless relevant to brand
-- ADAPT TO THE BRAND: If searching a high-fashion site, search for 'club heels' not 'orthopedic shoes'.
+- ADAPT TO THE BRAND: If searching a high-fashion site, search for 'club heels' not 'orthopedic shoes'
+- BANNED WORDS (never use these — they are marketing speak, not customer speak):
+  "stylish", "chic", "elegant", "trendy", "fashionable", "premium", "sophisticated", "stunning", "exquisite", "luxurious"
+  Instead use: "cute", "cool", "nice", "good", "comfy", "pretty", or just describe the need directly
 
 Output: Just the search query itself. One line. No explanation.`;
   };
