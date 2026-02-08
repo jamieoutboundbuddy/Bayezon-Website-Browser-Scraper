@@ -1011,27 +1011,36 @@ async function evaluateSearchResults(
   screenshotBase64: string
 ): Promise<EvaluationResult> {
 
-  const prompt = `You are an expert at evaluating search results with STRICT adherence to user intent.
+  const prompt = `You are evaluating search results on an e-commerce site. This data will be used in cold outreach emails, so ACCURACY IS EVERYTHING.
 
     Query: "${query}"
 
+⚠️ RULE #1 — NO HALLUCINATION (THIS IS THE MOST IMPORTANT RULE):
+- For products_shown: ONLY report product names you can CLEARLY READ as text on the screenshot.
+- If you CANNOT clearly read a product title → write "[unreadable]". This is the SAFE DEFAULT.
+- NEVER guess, infer, or invent product names based on the query or what you think the store sells.
+- Example of HALLUCINATION (FORBIDDEN): Query is "steel toe shoes" → you write "Men's Steel Toe Work Socks". If you can't read that exact text on screen, this is fabricated.
+- Example of CORRECT: Query is "steel toe shoes" → you see blurry product cards → you write ["[unreadable]", "[unreadable]", "[unreadable]"].
+- WHY THIS MATTERS: If we email a brand saying "your search returned Steel Toe Work Socks" and that product doesn't exist, we lose all credibility.
 
-Your Goal: Determine if the search results TRULY solve the user's specific problem.
-  CRITICAL: Many search engines return "keyword matches" that are functionally useless(False Positives).You must catch these.
+RULE #2 — STRICT RELEVANCE:
+- STRICT MATCHING: "heels i can dance in" → a 5-inch stiletto is NOT relevant even though it's a "heel". It must look stable/comfortable.
+- CONTEXT MATTERS: "rug that hides dirt" → a plain white rug is a FAILURE even though it's a "rug".
+- DETECT FAILURE: If results are generic keyword matches that ignore the specific constraint, mark as IRRELEVANT.
 
-Rules for Relevance:
-    1. STRICT MATCHING: If the user asks for "heels i can dance in", a 5 - inch stiletto is NOT relevant, even if it is a "heel".It must look stable / comfortable.
-2. CONTEXT MATTERS: "Rug that hides dirt" means patterned / dark / washable.A plain white rug is a FAILURE, even if it is a "rug".
-3. DETECT FAILURE: If the results are just generic matches that ignore the specific constraint(e.g. "dance in", "hides dirt", "birthday outfit"), mark them as IRRELEVANT.
+RULE #3 — COUNTING:
+- Count the total number of product cards visible on the page (result_count).
+- Count how many actually match the user's SPECIFIC intent (relevant_result_count).
+- You can assess relevance from product images even if titles are unreadable.
 
 Return a JSON object with:
-  - relevant_result_count: (number) Count of results that actually meet the SPECIFIC intent.
-- top_match: (string) Title of the best match(or "None"). Use the EXACT product title as shown on screen — do NOT paraphrase or invent product names.
-- significant_failure: (boolean) Set to TRUE if the search engine failed to understand the nuance(returned keyword matches that are wrong).
-- result_count: (number) Total results found.
+- relevant_result_count: (number) Results that actually meet the SPECIFIC intent.
+- top_match: (string) EXACT title of best match as read from screen, or "None", or "[unreadable]".
+- significant_failure: (boolean) TRUE if search returned keyword matches that miss the point.
+- result_count: (number) Total product cards visible.
 - first_relevant_position: (number or null) Position of first good result.
-- products_shown: (string[]) List of EXACT product titles as they appear on the page. Do NOT make up names. If you cannot read the titles clearly, write "[unreadable]".
-- reasoning: (string) Explain strictly why it passed or failed.E.g. "Results were just generic heels, not suitable for dancing."`;
+- products_shown: (string[]) ONLY names you can CLEARLY READ on screen. Default to "[unreadable]" if uncertain. Never invent.
+- reasoning: (string) Why it passed or failed. Reference what you ACTUALLY SEE, not what you assume.`;
 
   // Helper to parse evaluation response
   const parseEvalResponse = (content: string) => {
