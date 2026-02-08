@@ -880,33 +880,37 @@ Keep it to 2-4 words. Think: what would you actually type into a search bar?`;
       // EDGE TESTER: Probe OUTSIDE the brand's core strength
       // Designed to find gaps in catalog or search tagging
       searchStrategy = `ATTEMPT 2 (EDGE TESTER — probe the brand's WEAK SPOTS):
-Generate a query that probes the EDGE of what this brand should handle.
-DO NOT query their obvious sweet spot — probe areas where they might be WEAK.
+Generate a query for a product type this brand DOES NOT SELL but that customers
+of this product category WOULD reasonably search for.
 
-STRATEGY: Think about what a CUSTOMER of this product category would search,
-but that THIS SPECIFIC BRAND might not serve well:
-- If a shoe brand focuses on casual/eco → try "dress shoes" or "steel toe boots" or "kids shoes"
-- If a clothing brand is trendy fast-fashion → try "petite dresses" or "plus size jeans" or "work blazer"
-- If a brand is niche → try adjacent categories they probably don't stock well
-- If a brand is premium → try budget-adjacent queries like "under $50"
+GOLDEN RULE: Pick something a customer would expect a ${brandSummary.includes('shoe') || brandSummary.includes('Shoe') ? 'shoe' : brandSummary.includes('cloth') || brandSummary.includes('Cloth') ? 'clothing' : 'general'} site to have,
+but that THIS specific brand almost certainly does not carry.
 
-GOOD EXAMPLES (probe weak spots):
-- "dress shoes" (tests casual-focused brands)
-- "shoes for flat feet" (podiatric need — rarely tagged)
-- "wide width heels" (specific fit constraint)
-- "kids sneakers" (age segment many brands skip)
+STRATEGY — pick from these angles:
+- AUDIENCE GAP: "kids shoes", "toddler shoes", "baby clothes" (if brand is adults-only)
+- FORMALITY GAP: "dress shoes", "high heels", "suits" (if brand is casual-focused)
+- FUNCTION GAP: "steel toe boots", "non-slip shoes", "safety glasses" (if brand is lifestyle)
+- FIT/BODY GAP: "wide width shoes", "petite dresses", "tall sizes" (niche fit needs)
+- HEALTH GAP: "shoes for flat feet", "arch support", "orthopedic shoes" (medical needs)
+
+GOOD EXAMPLES (target catalog GAPS):
+- "dress shoes" (casual brands don't carry formal)
+- "kids shoes" (many brands are adults-only)
+- "high heels" (eco/comfort brands don't carry these)
+- "shoes for flat feet" (medical need nobody tags)
+- "wide width shoes" (sizing gap)
 - "steel toe boots" (safety — opposite of fashion)
-- "plus size swimsuit" (size inclusivity test)
-- "petite jeans" (sizing niche)
-- "non-slip work shoes" (function over fashion)
+- "plus size swimsuit" (inclusivity test)
+- "maternity clothes" (life-stage gap)
 
-BAD EXAMPLES:
-- "comfortable sneakers" (This is the sweet spot for most shoe brands — too easy)
-- "recycled material shoes" (This is a VALUE PROP, not an edge test)
+BAD EXAMPLES (too close to what they sell):
+- "work boots" (many brands have some boots — too easy to pass)
+- "comfortable sneakers" (sweet spot for most shoe brands)
+- "recycled material shoes" (VALUE PROP, not an edge test)
 - "casual shoes" (Way too broad — everything matches)
+- "waterproof boots" (Many brands can serve this)
 
-Keep it 2-4 words. The query should be something a real customer would search,
-but that THIS brand's search engine might struggle with.`;
+Keep it 2-4 words. Pick something they CANNOT serve well.`;
     } else if (attempt === 3) {
       // NATURAL INTENT: Slightly longer, implies need without stating it
       // This is the hardest query — tests if search understands intent
