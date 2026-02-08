@@ -851,97 +851,77 @@ async function generateNextQuery(
     let searchStrategy = '';
 
     if (attempt === 1) {
-      // OCCASION QUERY: Short, simple, undeniable
-      // The kind of thing an ecommerce head would see and think "yeah, our customers search that"
-      searchStrategy = `ATTEMPT 1 (OCCASION / NEED — short and undeniable):
-Generate a SHORT search query based on an occasion, need, or use case.
-This query will be shown to a Head of Ecommerce in a cold email, so it MUST be
-something they'd immediately believe their customers type.
-
-GOOD EXAMPLES (2-4 words, obviously real):
-- "wedding shoes"
-- "interview outfit"
-- "shoes for standing all day"
-- "winter boots"
-- "going out dress"
-- "work bag"
-- "outfit for vegas"
-- "rain jacket"
-- "baby shower dress"
-
-BAD EXAMPLES (too descriptive, too creative, too specific):
-- "cute shoes for brunch with friends" (Overwritten — nobody types this)
-- "stylish boots for fall" (Marketing speak)
-- "clothes that hide belly after big meal" (Ridiculous — nobody searches this)
-- "comfortable yet fashionable everyday sneakers" (Essay, not a search)
-- "shoes that won't hurt my feet at a party" (Too long and narrative)
-
-Keep it to 2-4 words. Think: what would you actually type into a search bar?`;
-    } else if (attempt === 2) {
-      // EDGE TESTER: Use brand research to probe CREDIBLE catalog gaps
-      const edgeQueries = brandResearch?.credibleEdgeQueries?.join(', ') || 'dress shoes, kids shoes, wide width shoes';
-      const notSold = brandResearch?.categoriesNotSold?.join(', ') || 'unknown';
+      // DIRECT PRODUCT: Straightforward search for something the brand sells
+      const directQueries = brandResearch?.searchQueries?.direct?.join(', ') || 'popular products';
       const productTypes = brandResearch?.productTypes?.join(', ') || 'unknown';
-      searchStrategy = `ATTEMPT 2 (EDGE TESTER — true category gap):
-Pick a search query that targets a TRUE CATEGORY GAP — a product type this brand has ZERO products for.
+      searchStrategy = `ATTEMPT 1 (DIRECT PRODUCT — straightforward, should work):
+Search for a specific product type this brand ACTUALLY SELLS.
+This establishes a baseline — if their search can't even handle this, it's broken.
 
-BRAND RESEARCH:
-- This brand sells: ${productTypes}
-- This brand does NOT sell (ZERO products): ${notSold}
-- Credible edge test queries for this brand: ${edgeQueries}
+This brand sells: ${productTypes}
+Suggested direct queries: ${directQueries}
 
-CRITICAL DISTINCTION:
-- A "USE CASE" is something the brand's existing products COULD serve → NOT a valid edge test.
-- A "CATEGORY GAP" is a product type the brand has ZERO products for → THIS is what we want.
-- TEST: If the brand has ANY product a customer might click for this query, it's NOT a gap.
+Pick one from the suggested queries above, or create a similar one.
+The query must be for a product the brand DEFINITELY has in stock.
+Use words their customers would actually type — check autocomplete.
 
-EXAMPLE:
-- "dress shoes for work" on Allbirds → BAD — they market office shoes, customers could click Loungers.
-- "kids shoes" on Allbirds → GOOD — they have ZERO children's products.
+GOOD: "wool runners", "ankle boots", "bodycon dress", "cargo pants"
+BAD: "stylish everyday footwear" (marketing), "cute shoes" (too vague)
 
-RULES:
-1. Pick from the "credible edge test queries" list above, or target "does NOT sell" categories.
-2. The query MUST be something a real customer of this product category would actually search.
-3. The brand must have ZERO products for this query — not just weak results.
+Keep it 2-4 words.`;
+    } else if (attempt === 2) {
+      // INTENT-BASED: Describes a need the brand's products solve
+      const intentQueries = brandResearch?.searchQueries?.intent?.join(', ') || 'comfortable shoes';
+      const productTypes = brandResearch?.productTypes?.join(', ') || 'unknown';
+      searchStrategy = `ATTEMPT 2 (INTENT-BASED — tests if search understands needs):
+Search for a NEED or OCCASION that this brand's products SHOULD solve.
+The brand has products for this — the question is whether their search is smart enough.
 
-Keep it 2-4 words. Pick from the credible edge queries above if possible.`;
+This brand sells: ${productTypes}
+Suggested intent queries: ${intentQueries}
+
+Pick one from the suggested queries above, or create a similar one.
+The query describes WHAT THE CUSTOMER NEEDS, not the product name.
+Their search should be smart enough to match the right products.
+
+GOOD: "shoes for standing all day", "comfortable wedding shoes", "birthday outfit"
+BAD: "going out tonight" (too vague — searching for WHAT?), "clothes that hide tummy" (nobody types this)
+
+TEST: Would this show up in search autocomplete? If not, reject it.
+Keep it 2-6 words.`;
     } else if (attempt === 3) {
-      // NATURAL INTENT: Slightly longer, implies need without stating it
-      // This is the hardest query — tests if search understands intent
-      searchStrategy = `ATTEMPT 3 (NATURAL INTENT — implied need, slightly longer):
-Generate a query that implies what the user needs without spelling it out.
-This is the trickiest query — tests if search understands meaning, not just keywords.
+      // SPECIFIC ATTRIBUTE: Searches for a real feature the brand's products have
+      const attrQueries = brandResearch?.searchQueries?.attribute?.join(', ') || 'comfortable shoes';
+      const keyFeatures = brandResearch?.keyFeatures?.join(', ') || 'unknown';
+      searchStrategy = `ATTEMPT 3 (SPECIFIC ATTRIBUTE — tests search depth):
+Search for a SPECIFIC FEATURE or ATTRIBUTE that this brand's products actually have,
+but that their search probably hasn't tagged properly.
 
-GOOD EXAMPLES (3-6 words, natural):
-- "boots that go with dresses"
-- "shoes for disney world"
-- "what to wear hiking"
-- "running in the rain"
-- "first day of school outfit"
-- "gym bag that fits everything"
-- "jeans that don't stretch out"
+This brand's key product features: ${keyFeatures}
+Suggested attribute queries: ${attrQueries}
 
-BAD EXAMPLES:
-- "premium genuine leather ankle boots" (Keyword stuffing)
-- "comfy shoes for city exploring" (Bland — what is "city exploring"?)
-- "cute ankle boots for fall" (Adjective-first is marketing, not searching)
+Pick one from the suggested queries above, or create a similar one.
+This tests whether the brand has tagged their products for real customer concerns.
+The brand HAS products with this attribute — but search likely can't find them.
 
-The query should imply needs ("disney world" = walking 20k steps = comfort)
-without listing them.`;
+GOOD: "machine washable shoes", "non-slip heels", "high waisted jeans", "breathable sneakers"
+BAD: "sustainable ethically-sourced footwear" (marketing essay), "shoes that don't smell" (too colloquial)
+
+TEST: Would a customer type this exact phrase into a search bar? If not, reject it.
+Keep it 2-5 words.`;
     }
 
-    return `You are generating a REALISTIC search query to test an e-commerce site: ${brandSummary}
+    return `You are generating a REALISTIC search query to test an e-commerce site's search: ${brandSummary}
 ${prevQueryList}
 ${searchStrategy}
 
 CRITICAL RULES:
 - 2-4 words is ideal. Maximum 6 words. Shorter is better.
-- Must sound like something a real customer would actually type
+- Must sound like something a real customer would actually type into a search bar
 - This query will appear in a cold email to a VP of Ecommerce, so it must be UNDENIABLE
 - NO adjectives like cute, stylish, chic, elegant, trendy, fashionable, premium, sophisticated
-- NO overly descriptive phrases — keep it tight
-- ATTEMPTS 1 & 3: Match the brand's actual product category
-- ATTEMPT 2: Probe OUTSIDE the brand's core — test breadth, not depth
+- ALL queries must be for products the brand ACTUALLY SELLS — we're testing search quality, not catalog gaps
+- The query must pass the AUTOCOMPLETE TEST: would you see this in a search bar dropdown?
 - If you can't imagine someone actually typing this into a search bar, REJECT IT
 
 Output: Just the search query itself. One line. No explanation.`;
@@ -1242,44 +1222,41 @@ export async function aiFullAnalysis(
         model: 'gpt-4o',
         messages: [{
           role: 'user',
-          content: `You are an e-commerce expert. Research the brand at ${domain} using your knowledge.
+          content: `You are an e-commerce search expert. Research the brand at ${domain} using your knowledge.
+
+We need to TEST their search engine by searching for things they ACTUALLY SELL — then see if their search returns relevant results.
 
 Return a JSON object with:
 {
-  "category": "Primary product category in 2-4 words (e.g. 'Sustainable casual footwear')",
-  "audience": "Target audience in one sentence (e.g. 'Eco-conscious millennials who prioritize comfort')",
-  "productTypes": ["list of ALL product types they actually sell — be thorough"],
-  "categoriesNotSold": ["product types that a GENERAL SHOPPER in this category would want, but this brand has ZERO products for. These must be ENTIRE CATEGORIES the brand does not manufacture — not use cases they could serve with existing products."],
-  "credibleEdgeQueries": ["3-5 search queries targeting categories from categoriesNotSold. Must be undeniable: any ecommerce head would agree customers search these terms."]
+  "category": "Primary product category in 2-4 words",
+  "audience": "Target audience in one sentence",
+  "productTypes": ["complete list of product types they sell — be thorough"],
+  "keyFeatures": ["notable product features/attributes their products have, e.g. 'machine washable', 'sustainable materials', 'memory foam', 'waterproof'"],
+  "customerLanguage": "How this brand's customers talk and search — casual/earthy for Allbirds, trendy/bold for Fashion Nova, fashion-forward for Steve Madden",
+  "searchQueries": {
+    "direct": ["3 straightforward product searches using words their customers actually use. Things you'd see in search autocomplete. e.g. 'wool runners', 'ankle boots', 'bodycon dress'"],
+    "intent": ["3 need/occasion queries that their products SHOULD solve, phrased how a real customer would type it into a search bar. Must be specific enough that you'd see it in autocomplete. e.g. 'shoes for standing all day', 'comfortable wedding shoes', 'birthday outfit'"],
+    "attribute": ["3 specific product attribute searches that their products actually HAVE but search probably doesn't tag for. Must be something a real person would type. e.g. 'machine washable shoes', 'non-slip heels', 'high waisted jeans'"]
+  }
 }
 
-CRITICAL DISTINCTION — "use case" vs "category gap":
-A USE CASE is something the brand's existing products COULD serve (even if imperfectly).
-A CATEGORY GAP is a product type the brand literally does NOT make or stock.
+CRITICAL — EVERY query must pass this test:
+1. The brand ACTUALLY SELLS products that match this query
+2. A real customer would ACTUALLY TYPE this into a search bar (would it show up in autocomplete?)
+3. It sounds like how THIS brand's customers talk — not generic, not marketing-speak
 
-TEST: If the brand has ANY products that a customer might click for this query, it's a USE CASE, not a gap.
+BAD QUERIES (fail the autocomplete test):
+- "going out tonight" (too vague — what are you searching FOR?)
+- "clothes that hide tummy" (too personal — nobody types this)
+- "cute ankle boots for fall" (adjective-first = marketing, not searching)
+- "comfortable yet fashionable everyday sneakers" (essay, not a search)
 
-EXAMPLES:
-- Allbirds: "dress shoes for work" is a USE CASE — Allbirds markets shoes for the office, customers could click their Loungers. NOT a valid gap.
-- Allbirds: "kids shoes" IS a CATEGORY GAP — Allbirds has ZERO children's products.
-- Allbirds: "wide width shoes" IS a CATEGORY GAP — they don't offer width sizing.
-- Allbirds: "shoes for flat feet" IS a CATEGORY GAP — no orthopedic/arch support products.
-- Steve Madden: "running shoes" IS a CATEGORY GAP — they don't make athletic performance shoes.
-- Steve Madden: "orthopedic shoes" IS a CATEGORY GAP — no medical footwear.
-- Fashion Nova: "maternity clothes" IS a CATEGORY GAP — no maternity line.
-- Fashion Nova: "work blazer" is a USE CASE — they sell blazers. NOT a valid gap.
-
-BAD edge queries (USE CASES, not gaps):
-- "dress shoes" for a shoe brand that sells any smart/office shoes
-- "comfortable sneakers" for any sneaker brand
-- "going out dress" for any clothing brand with dresses
-- "high heels" for a brand that is purely casual (too absurd — nobody expects Allbirds to have heels)
-
-GOOD edge queries (TRUE CATEGORY GAPS):
-- "kids shoes" for an adults-only brand
-- "wide width shoes" for a brand with no width options
-- "steel toe boots" for a fashion/lifestyle brand
-- "shoes for flat feet" for a brand with no orthopedic line
+GOOD QUERIES (pass the autocomplete test):
+- "wool shoes" (direct — specific product the brand sells)
+- "shoes for standing all day" (intent — specific need, their products solve it)
+- "machine washable sneakers" (attribute — real feature, real search term)
+- "comfortable heels for wedding" (intent — specific occasion, product type included)
+- "high waisted jeans" (direct — specific product attribute customers search)
 
 Only output the JSON, no explanation.`
         }],
@@ -1296,8 +1273,9 @@ Only output the JSON, no explanation.`
           brandResearch = JSON.parse(jsonMatch[0]);
           brandSummary = `${brandResearch.category || 'E-commerce retailer'} | ${brandResearch.audience || 'General shoppers'}`;
           console.log(`  [AI] Products sold:`, brandResearch.productTypes?.join(', '));
-          console.log(`  [AI] Categories NOT sold:`, brandResearch.categoriesNotSold?.join(', '));
-          console.log(`  [AI] Credible edge queries:`, brandResearch.credibleEdgeQueries?.join(', '));
+          console.log(`  [AI] Key features:`, brandResearch.keyFeatures?.join(', '));
+          console.log(`  [AI] Customer language:`, brandResearch.customerLanguage);
+          console.log(`  [AI] Search queries:`, JSON.stringify(brandResearch.searchQueries));
         } else {
           brandSummary = responseContent.substring(0, 100) || brandSummary;
         }
