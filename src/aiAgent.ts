@@ -12,6 +12,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import OpenAI from 'openai';
 import { getDb } from './db';
+import { autoScroll, waitForProducts } from './scraperUtils';
 
 // ============================================================================
 // Types
@@ -137,6 +138,9 @@ async function createStagehandSession(): Promise<Stagehand> {
 // ============================================================================
 // Action Timeout Helper - Prevents hanging on slow actions
 // ============================================================================
+
+
+
 
 async function actWithTimeout(
   stagehand: Stagehand,
@@ -750,6 +754,12 @@ async function executeSearchWithFallbacks(
 
       if (isValidPage) {
         console.log(`  [SEARCH] ✓ Layer 5 SUCCESS: URL fallback worked`);
+
+        // Enhance rendering before returning
+        await dismissPopups(stagehand, page);
+        await waitForProducts(page);
+        await autoScroll(page);
+
         return { success: true, method: 'url_fallback' };
       }
     } catch (e: any) {
@@ -909,6 +919,55 @@ BAD: "sustainable ethically-sourced footwear" (marketing essay), "shoes that don
 
 TEST: Would a customer type this exact phrase into a search bar? If not, reject it.
 Keep it 2-5 words.`;
+    } else if (attempt === 4) {
+      // BOSS MODE LEVEL 1: NEGATION / EXCLUSION
+      // Search engines often fail at "without", "no", "non"
+      searchStrategy = `ATTEMPT 4 (BOSS MODE: NEGATIVE CONSTRAINT):
+Search for a product while explicitly EXCLUDING a common feature using "without", "no", or "non".
+This is a notorious weakness for e-commerce search engines (they often just search for the keyword you wanted to remove).
+
+Brand sells: ${brandResearch?.productTypes?.join(', ')}
+
+STRATEGY: Find a product type that usually has X, and search for it WITHOUT X.
+Examples:
+- "shoes without laces" (often returns shoes WITH laces because it sees "laces")
+- "dress without sleeves" (often returns sleeved dresses)
+- "sulfate free shampoo" (often returns standard shampoo)
+- "boots no zipper"
+
+CRITICAL: The brand must actually sell this type of product (e.g. slip-on shoes, sleeveless dresses).
+Keep it natural.`;
+    } else if (attempt === 5) {
+      // BOSS MODE LEVEL 2: PRICE / COLOR / COMBINATION
+      // Tests handling of multiple specific filters in the query string
+      searchStrategy = `ATTEMPT 5 (BOSS MODE: COMPLEX FILTER):
+Search for a specific product type + a specific color + a specific constraint (like price or material).
+This breaks search engines that prioritize keyword matching over structured data filtering.
+
+Brand sells: ${brandResearch?.productTypes?.join(', ')}
+
+STRATEGY: [Product] + [Color] + [Constraint]
+Examples:
+- "red dress under $50" (Search engines struggle with price in query)
+- "black leather boots size 10" (Specific variant)
+- "white sneakers for women sale"
+
+CRITICAL: Pick a price point or constraint that is REALISTIC for this brand.
+If they are luxury, don't search "under $20".`;
+    } else if (attempt === 6) {
+      // BOSS MODE LEVEL 3: COMPLEX INTENT / THEMATIC
+      // High-level semantic understanding
+      searchStrategy = `ATTEMPT 6 (BOSS MODE: COMPLEX INTENT):
+Search for a specific, complex occasion or theme that requires understanding "vibes" or specific settings.
+This tests semantic vector search capabilities.
+
+STRATEGY: Search for an outfit/product for a specific sophisticated scenario.
+Examples:
+- "outfit for a winter beach wedding"
+- "shoes for a job interview at a tech company"
+- "gift for dad who likes hiking"
+
+CRITICAL: Must be a query a HUMAN would actually try if they were frustrated or hopeful.`;
     }
 
     return `You are generating a REALISTIC search query to test an e-commerce site's search: ${brandSummary}
@@ -1117,7 +1176,7 @@ Return a JSON object with:
 // Main Adversarial Analysis Pipeline
 // ============================================================================
 
-const MAX_ATTEMPTS = 3;  // Reduced from 5 - most failures happen early
+
 
 export async function aiFullAnalysis(
   jobId: string,
@@ -1151,7 +1210,7 @@ export async function aiFullAnalysis(
 
   console.log(`\n[ADVERSARIAL] ========================================`);
   console.log(`[ADVERSARIAL] Starting adversarial analysis for: ${domain} `);
-  console.log(`[ADVERSARIAL] Max ${MAX_ATTEMPTS} queries, stop on significant failure`);
+  console.log(`[ADVERSARIAL] Max 3-6 queries, stop on significant failure`);
   console.log(`[ADVERSARIAL] ========================================\n`);
 
   const openai = getOpenAIClient();
@@ -1302,9 +1361,13 @@ Only output the JSON, no explanation.`
     // ADVERSARIAL TESTING LOOP
     // ========================================================================
 
-    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const MAX_LEVEL1_ATTEMPTS = 3;
+    const MAX_TOTAL_ATTEMPTS = 6;
+    let currentMaxAttempts = MAX_LEVEL1_ATTEMPTS;
+
+    for (let attempt = 1; attempt <= currentMaxAttempts; attempt++) {
       console.log(`\n[ADVERSARIAL] ----------------------------------------`);
-      console.log(`[ADVERSARIAL] Query ${attempt}/${MAX_ATTEMPTS}`);
+      console.log(`[ADVERSARIAL] Query ${attempt}/${currentMaxAttempts} ${attempt > 3 ? '(BOSS MODE)' : ''}`);
       console.log(`[ADVERSARIAL] ----------------------------------------`);
 
       // Generate next query (adaptive based on previous results)
@@ -1411,6 +1474,11 @@ Only output the JSON, no explanation.`
       }
 
       const resultsScreenshotPath = getArtifactPath(jobId, domain, `results_${attempt}`, 'png');
+
+      // Ensure page is fully rendered before screenshot
+      await waitForProducts(activePage);
+      await autoScroll(activePage);
+
       await activePage.screenshot({
         path: resultsScreenshotPath,
         fullPage: true,
@@ -1500,9 +1568,17 @@ Only output the JSON, no explanation.`
           failureReasoning = evaluation.reasoning;
         }
         // Continue to test other personas to get full picture
+      } else {
+        console.log(`  [AI] ✓ Query passed, trying harder...`);
       }
 
-      console.log(`  [AI] ✓ Query passed, trying harder...`);
+      // BOSS MODE TRIGGER
+      // If we effectively passed all Level 1 queries (reached attempt 3 with no failures),
+      // UNLOCK LEVEL 2 (attempts 4-6)
+      if (attempt === MAX_LEVEL1_ATTEMPTS && !proofQuery) {
+        console.log(`\n  [AI] 🛡 LEVEL 1 PASSED! Unlocking BOSS MODE (Attempts 4-6)...`);
+        currentMaxAttempts = MAX_TOTAL_ATTEMPTS;
+      }
     }
 
     await stagehand.close();
@@ -1539,7 +1615,7 @@ Only output the JSON, no explanation.`
       verdict = 'OUTREACH';
       reason = `Search failed on query "${firstFailure.query}": ${firstFailure.reasoning}`;
       proofQuery = firstFailure.query;
-    } else if (successfulQueries.length >= MAX_ATTEMPTS || queriesTested.length === MAX_ATTEMPTS) {
+    } else if (successfulQueries.length >= currentMaxAttempts || queriesTested.length === currentMaxAttempts) {
       verdict = 'SKIP';
       reason = `Search handled all ${successfulQueries.length} test queries successfully`;
     } else if (systemErrorQueries.length > 0 && successfulQueries.length > 0) {
@@ -1558,9 +1634,11 @@ Only output the JSON, no explanation.`
     // Build the journey narrative
     const journeySteps = queriesTested.map((q, i) => {
       const status = q.passed ? '✅' : '❌';
-      const resultText = q.resultCount !== null ? `${q.resultCount} results` : 'unknown results';
+      const resultText = q.resultCount !== null
+        ? `**${q.resultCount} returned, ${q.relevantResultCount} relevant**`
+        : 'unknown results';
       const positionText = q.firstRelevantPosition
-        ? ` (relevant at position ${q.firstRelevantPosition})`
+        ? ` (First relevant: #${q.firstRelevantPosition})`
         : '';
       return `${i + 1}. "${q.query}" → ${status} ${resultText}${positionText}${q.passed ? '' : ' - FAILED'}`;
     });
