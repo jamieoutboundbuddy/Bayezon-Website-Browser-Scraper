@@ -882,23 +882,27 @@ Keep it to 2-4 words. Think: what would you actually type into a search bar?`;
       const edgeQueries = brandResearch?.credibleEdgeQueries?.join(', ') || 'dress shoes, kids shoes, wide width shoes';
       const notSold = brandResearch?.categoriesNotSold?.join(', ') || 'unknown';
       const productTypes = brandResearch?.productTypes?.join(', ') || 'unknown';
-      searchStrategy = `ATTEMPT 2 (EDGE TESTER — credible catalog gap):
-Pick a search query that targets a CREDIBLE gap in this brand's catalog.
+      searchStrategy = `ATTEMPT 2 (EDGE TESTER — true category gap):
+Pick a search query that targets a TRUE CATEGORY GAP — a product type this brand has ZERO products for.
 
 BRAND RESEARCH:
 - This brand sells: ${productTypes}
-- This brand does NOT sell: ${notSold}
+- This brand does NOT sell (ZERO products): ${notSold}
 - Credible edge test queries for this brand: ${edgeQueries}
 
+CRITICAL DISTINCTION:
+- A "USE CASE" is something the brand's existing products COULD serve → NOT a valid edge test.
+- A "CATEGORY GAP" is a product type the brand has ZERO products for → THIS is what we want.
+- TEST: If the brand has ANY product a customer might click for this query, it's NOT a gap.
+
+EXAMPLE:
+- "dress shoes for work" on Allbirds → BAD — they market office shoes, customers could click Loungers.
+- "kids shoes" on Allbirds → GOOD — they have ZERO children's products.
+
 RULES:
-1. Pick a query from the "credible edge test queries" list above, or create one
-   that targets the "does NOT sell" categories.
-2. The query MUST be something a real customer of this product category would search.
-   A Head of Ecommerce must read this query and think "yeah, our customers do search that."
-3. Do NOT pick something absurdly outside the brand's domain.
-   BAD: "high heels" on an eco-sneaker site — no one goes there for heels.
-   GOOD: "shoes for flat feet" on an eco-sneaker site — real shoe buyers search this.
-4. The query should expose a GAP the brand can't serve, not test their core strength.
+1. Pick from the "credible edge test queries" list above, or target "does NOT sell" categories.
+2. The query MUST be something a real customer of this product category would actually search.
+3. The brand must have ZERO products for this query — not just weak results.
 
 Keep it 2-4 words. Pick from the credible edge queries above if possible.`;
     } else if (attempt === 3) {
@@ -1244,17 +1248,38 @@ Return a JSON object with:
 {
   "category": "Primary product category in 2-4 words (e.g. 'Sustainable casual footwear')",
   "audience": "Target audience in one sentence (e.g. 'Eco-conscious millennials who prioritize comfort')",
-  "productTypes": ["list of product types they actually sell, e.g. 'running shoes', 'wool sneakers', 'socks', 'insoles'"],
-  "categoriesNotSold": ["list of product types that customers of this PRODUCT CATEGORY would search for, but this brand DOES NOT carry. CRITICAL: these must be things a real customer of this product category would search for on any site in this category, but that THIS specific brand doesn't sell. For example, if it's a casual shoe brand, include 'dress shoes', 'kids shoes', etc. Do NOT include absurdly unrelated categories like 'high heels' on an eco-sneaker site."],
-  "credibleEdgeQueries": ["3-5 specific search queries that would be CREDIBLE in a cold email — things a real customer of this product category would search for, that this brand likely can't serve well. These should be undeniable: any ecommerce head would agree their customers search these terms."]
+  "productTypes": ["list of ALL product types they actually sell — be thorough"],
+  "categoriesNotSold": ["product types that a GENERAL SHOPPER in this category would want, but this brand has ZERO products for. These must be ENTIRE CATEGORIES the brand does not manufacture — not use cases they could serve with existing products."],
+  "credibleEdgeQueries": ["3-5 search queries targeting categories from categoriesNotSold. Must be undeniable: any ecommerce head would agree customers search these terms."]
 }
 
-IMPORTANT for categoriesNotSold and credibleEdgeQueries:
-- Must be CREDIBLE — someone shopping for ${domain}'s product category would realistically search these
-- Must be RELEVANT — adjacent to what the brand sells, not absurdly different
-- Example: For Allbirds (eco-casual shoes): "dress shoes" YES, "shoes for flat feet" YES, "high heels" NO (no shoe customer goes to Allbirds for heels)
-- Example: For Steve Madden (fashion shoes): "steel toe boots" YES, "orthopedic shoes" YES, "running shoes" YES (fashion shoe buyers also need these)
-- Example: For Fashion Nova (trendy fashion): "maternity clothes" YES, "work blazer" YES, "ski jacket" NO (not credible)
+CRITICAL DISTINCTION — "use case" vs "category gap":
+A USE CASE is something the brand's existing products COULD serve (even if imperfectly).
+A CATEGORY GAP is a product type the brand literally does NOT make or stock.
+
+TEST: If the brand has ANY products that a customer might click for this query, it's a USE CASE, not a gap.
+
+EXAMPLES:
+- Allbirds: "dress shoes for work" is a USE CASE — Allbirds markets shoes for the office, customers could click their Loungers. NOT a valid gap.
+- Allbirds: "kids shoes" IS a CATEGORY GAP — Allbirds has ZERO children's products.
+- Allbirds: "wide width shoes" IS a CATEGORY GAP — they don't offer width sizing.
+- Allbirds: "shoes for flat feet" IS a CATEGORY GAP — no orthopedic/arch support products.
+- Steve Madden: "running shoes" IS a CATEGORY GAP — they don't make athletic performance shoes.
+- Steve Madden: "orthopedic shoes" IS a CATEGORY GAP — no medical footwear.
+- Fashion Nova: "maternity clothes" IS a CATEGORY GAP — no maternity line.
+- Fashion Nova: "work blazer" is a USE CASE — they sell blazers. NOT a valid gap.
+
+BAD edge queries (USE CASES, not gaps):
+- "dress shoes" for a shoe brand that sells any smart/office shoes
+- "comfortable sneakers" for any sneaker brand
+- "going out dress" for any clothing brand with dresses
+- "high heels" for a brand that is purely casual (too absurd — nobody expects Allbirds to have heels)
+
+GOOD edge queries (TRUE CATEGORY GAPS):
+- "kids shoes" for an adults-only brand
+- "wide width shoes" for a brand with no width options
+- "steel toe boots" for a fashion/lifestyle brand
+- "shoes for flat feet" for a brand with no orthopedic line
 
 Only output the JSON, no explanation.`
         }],
