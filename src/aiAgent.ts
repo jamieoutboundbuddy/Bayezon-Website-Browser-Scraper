@@ -112,7 +112,7 @@ function getArtifactPath(jobId: string, domain: string, stage: string, ext: 'png
 // Browser Session Management
 // ============================================================================
 
-async function createStagehandSession(): Promise<Stagehand> {
+export async function createStagehandSession(): Promise<Stagehand> {
   const apiKey = process.env.BROWSERBASE_API_KEY;
   const projectId = process.env.BROWSERBASE_PROJECT_ID;
 
@@ -121,16 +121,29 @@ async function createStagehandSession(): Promise<Stagehand> {
   }
 
   console.log('  [AI] Creating Stagehand session...');
+  console.log(`  [AI] Using Project ID: ${projectId}`);
 
   const stagehand = new Stagehand({
     env: 'BROWSERBASE',
     apiKey,
     projectId,
-    verbose: 0,           // Disable verbose logging for speed
+    verbose: 1,           // ENABLE verbose logging for debug
   });
 
-  await stagehand.init();
-  console.log('  [AI] ✓ Stagehand session ready');
+  console.log('  [AI] Awaiting stagehand.init()...');
+  try {
+    const initPromise = stagehand.init();
+    // Add a timeout race
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Stagehand init timed out after 30s')), 30000)
+    );
+
+    await Promise.race([initPromise, timeoutPromise]);
+    console.log('  [AI] ✓ Stagehand session ready');
+  } catch (error) {
+    console.error('  [AI] Stagehand init failed:', error);
+    throw error;
+  }
 
   return stagehand;
 }
@@ -158,7 +171,11 @@ async function actWithTimeout(
 // Fast Popup Dismissal - JavaScript-first, Stagehand fallback
 // ============================================================================
 
-async function dismissPopups(stagehand: Stagehand, page: any): Promise<void> {
+// ============================================================================
+// Fast Popup Dismissal - JavaScript-first, Stagehand fallback
+// ============================================================================
+
+export async function dismissPopups(stagehand: any, page: any): Promise<void> {
   console.log('  [AI] Popup dismissal starting...');
 
   // CRITICAL: Wait for delayed popups to appear (Steve Madden shows after ~2-3s)
@@ -202,7 +219,8 @@ async function dismissPopups(stagehand: Stagehand, page: any): Promise<void> {
           'decline', 'decline offer', 'not now', 'maybe later',
           'close', 'dismiss', 'skip', 'cancel', 'not interested',
           'continue without', 'no discount', "i'll pass", 'x',
-          'continue shopping', 'no thanks, i prefer full price'
+          'continue shopping', 'no thanks, i prefer full price',
+          'keep shopping', 'start shopping'
         ];
 
         // Check ALL clickable elements, not just buttons
@@ -275,6 +293,12 @@ async function dismissPopups(stagehand: Stagehand, page: any): Promise<void> {
           // Steve Madden specific
           '[class*="klaviyo"] button[aria-label]',
           '[class*="klaviyo"] [aria-label*="lose"]',
+          // Aritzia / Famous Footwear Specifics
+          'button[class*="close-icon"]',
+          'div[class*="close-icon"]',
+          '[id*="close-button"]',
+          '[class*="utility-overlay"] button',
+          '[class*="sidebar"] button[class*="close"]'
         ];
 
         for (const selector of closeSelectors) {
@@ -301,7 +325,7 @@ async function dismissPopups(stagehand: Stagehand, page: any): Promise<void> {
           if (!checkVisible(modalEl)) continue;
 
           // Look for buttons containing SVG (likely X icons)
-          const buttons = Array.from(modal.querySelectorAll('button, [role="button"]'));
+          const buttons = Array.from(modal.querySelectorAll('button, [role="button"], span'));
           for (const btn of buttons) {
             const el = btn as HTMLElement;
             // Check if button contains an SVG or × character
@@ -310,7 +334,7 @@ async function dismissPopups(stagehand: Stagehand, page: any): Promise<void> {
               const rect = el.getBoundingClientRect();
               const modalRect = modalEl.getBoundingClientRect();
               // If button is in top 120px of modal, likely a close button
-              if (rect.top - modalRect.top < 120) {
+              if (rect.top - modalRect.top < 150) {
                 console.log('[POPUP] Clicking SVG/X close button in modal');
                 el.click();
                 return true;
@@ -322,15 +346,25 @@ async function dismissPopups(stagehand: Stagehand, page: any): Promise<void> {
         // ============================================================
         // STEP 6: Click overlay backdrop (dismiss by clicking outside)
         // ============================================================
+        // Aggressively try to click heavily transparent or dark overlays
         const overlays = document.querySelectorAll(
-          '[class*="overlay"], [class*="backdrop"], [class*="Overlay"], [class*="Backdrop"]'
+          '[class*="overlay"], [class*="backdrop"], [class*="Overlay"], [class*="Backdrop"], div[style*="fixed"]'
         );
         for (const overlay of Array.from(overlays)) {
-          const style = window.getComputedStyle(overlay as Element);
-          if (style.position === 'fixed' && style.display !== 'none') {
-            console.log('[POPUP] Clicking overlay backdrop');
-            (overlay as HTMLElement).click();
-            return true;
+          const el = overlay as HTMLElement;
+          const style = window.getComputedStyle(el);
+
+          // Detect if it's a full-screen blocker
+          const isFullScreen = (el.offsetWidth >= window.innerWidth * 0.9) && (el.offsetHeight >= window.innerHeight * 0.9);
+
+          if (style.position === 'fixed' && style.display !== 'none' && style.zIndex !== 'auto' && isFullScreen) {
+            // Avoid clicking if it has significant text content (might be the main page?)
+            if (el.innerText.length < 500) {
+              console.log('[POPUP] Clicking overlay backdrop (aggressive)');
+              // Click top-left corner or center to avoid interacting with centered modal
+              el.click();
+              return true;
+            }
           }
         }
 
@@ -339,10 +373,10 @@ async function dismissPopups(stagehand: Stagehand, page: any): Promise<void> {
 
       if (dismissed) {
         console.log(`  [AI] ✓ Popup dismissed (attempt ${attempt + 1})`);
-        await new Promise(r => setTimeout(r, 500)); // Let animation complete
+        await new Promise(r => setTimeout(r, 1000)); // Let animation complete and UI settle
       } else {
         // No popup found, exit loop
-        console.log('  [AI] No popup detected');
+        console.log('  [AI] No popup detected in this pass');
         break;
       }
     } catch (e: any) {
@@ -460,7 +494,8 @@ interface SearchExecutionResult {
   error?: string;
 }
 
-async function executeSearchWithFallbacks(
+// Exported for debugging
+export async function executeSearchWithFallbacks(
   page: any,
   stagehand: Stagehand,
   query: string,
@@ -744,10 +779,18 @@ async function executeSearchWithFallbacks(
         const isError = text.includes('page not found') ||
           text.includes('404') ||
           text.includes("this page doesn't exist") ||
-          text.includes('error');
+          text.includes('error') ||
+          text.includes('sitemap') ||
+          document.title.toLowerCase().includes('help center') ||
+          document.title.toLowerCase().includes('customer service') ||
+          document.title.toLowerCase().includes('policy') ||
+          document.title.toLowerCase().includes('site map');
+
         const hasResults = text.includes('result') ||
           text.includes('product') ||
           text.includes('showing') ||
+          text.includes('items') ||
+          text.includes('filter') ||
           document.querySelectorAll('[class*="product"]').length > 0;
         return !isError && (hasResults || text.length > 500);
       });
@@ -1232,9 +1275,24 @@ export async function aiFullAnalysis(
     console.log(`[ADVERSARIAL] Setting up browser...`);
     await (page as any).setViewportSize(1920, 1080);
 
-    // Navigate to homepage
+    // Navigate to homepage with retry
     console.log(`[ADVERSARIAL] Navigating to ${url}...`);
-    await page.goto(url, { waitUntil: 'domcontentloaded' });
+    let navSuccess = false;
+    for (let i = 0; i < 3; i++) {
+      try {
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 });
+        navSuccess = true;
+        break;
+      } catch (e: any) {
+        console.log(`  [AI] Navigation attempt ${i + 1} failed: ${e.message}`);
+        await new Promise(r => setTimeout(r, 2000));
+      }
+    }
+
+    if (!navSuccess) {
+      console.error(`  [AI] CRITICAL: Failed to navigate to ${url} after 3 attempts`);
+      throw new Error(`Navigation failed: ${url}`);
+    }
     await new Promise(r => setTimeout(r, 1500));  // Reduced from 3000
 
     // Dismiss popups
@@ -1376,7 +1434,11 @@ Only output the JSON, no explanation.`
         brandSummary,
         brandResearch,
         attempt,
-        previousQueries: queriesTested
+        previousQueries: queriesTested.map(q => ({
+          ...q,
+          // Strip screenshot path for prompt to save tokens if object is large
+          screenshotPath: undefined
+        })) as QueryTestResult[]
       });
       console.log(`  [AI] Testing: "${query}"`);
 
@@ -1389,88 +1451,90 @@ Only output the JSON, no explanation.`
       }
 
       // ============================================================
-      // SEARCH - Layered JS-first approach with Stagehand fallback
+      // SEARCH - Layered JS-first approach with Stagehand fallback (WITH RETRY)
       // ============================================================
 
-      // Store URL before search to verify navigation
-      const urlBeforeSearch = page.url();
+      let searchResult: SearchExecutionResult = { success: false, method: 'none' };
+      let activePage: any = page;
+      let isErrorPage = false;
+      let stillOnHomepage = false;
 
-      // Execute search using layered fallback approach
-      const searchResult = await executeSearchWithFallbacks(
-        page,
-        stagehand,
-        query,
-        domain,
-        url
-      );
+      // Retry up to 2 times for search execution
+      for (let searchAttempt = 0; searchAttempt < 2; searchAttempt++) {
+        if (searchAttempt > 0) {
+          console.log(`  [AI] ⚠ Retrying search for "${query}" (Attempt ${searchAttempt + 1})...`);
+          // Try to recover state - go back to homepage
+          try {
+            await page.goto(url, { waitUntil: 'domcontentloaded' });
+            await new Promise(r => setTimeout(r, 1000));
+            await dismissPopups(stagehand, page);
+          } catch { /* ignore */ }
+        }
 
-      console.log(`  [AI] Search result: ${searchResult.success ? '✓ SUCCESS' : '✗ FAILED'} via ${searchResult.method}`);
-      if (searchResult.error) {
-        console.log(`  [AI] Error: ${searchResult.error}`);
+        // Store URL before search to verify navigation
+        const urlBeforeSearch = page.url();
+
+        // Execute search using layered fallback approach
+        searchResult = await executeSearchWithFallbacks(
+          page,
+          stagehand,
+          query,
+          domain,
+          url
+        );
+
+        console.log(`  [AI] Search result: ${searchResult.success ? '✓ SUCCESS' : '✗ FAILED'} via ${searchResult.method}`);
+        if (searchResult.error) {
+          console.log(`  [AI] Error: ${searchResult.error}`);
+        }
+
+        // Get the current page after potential navigation (page context may have changed)
+        const pagesAfterSearch = stagehand.context.pages();
+        activePage = pagesAfterSearch[pagesAfterSearch.length - 1] || page;
+
+        // Check if we're still on homepage (search navigation failed)
+        const finalUrl = activePage.url();
+        stillOnHomepage = !searchResult.success && (
+          finalUrl === urlBeforeSearch ||
+          finalUrl === url ||
+          (finalUrl.replace(/\/$/, '') === url.replace(/\/$/, '')));
+
+        if (stillOnHomepage) {
+          console.log(`  [AI] ⚠ STILL ON HOMEPAGE - Search navigation completely failed`);
+        } else {
+          console.log(`  [AI] ✓ On results page: ${finalUrl}`);
+        }
+
+        // Check for error page BEFORE screenshot
+        const pageContent = await activePage.evaluate(() => document.body?.innerText || '');
+        isErrorPage = pageContent.includes("This site can't be reached") ||
+          pageContent.includes("ERR_") ||
+          pageContent.includes("404") ||
+          pageContent.includes("Page not found") ||
+          pageContent.includes("cannot be displayed") ||
+          pageContent.includes("Connection failed");
+
+        if (isErrorPage) {
+          console.log(`  [AI] ⚠ ERROR PAGE DETECTED - Navigation failed completely`);
+          // If it's the last attempt, we'll fall through to existing error handling
+          // If not, the loop will retry
+          if (searchAttempt < 1) {
+            console.log(`  [AI] Attempting retry...`);
+            await new Promise(r => setTimeout(r, 2000));
+          }
+        } else {
+          // Success (or at least not an error page) - break out of retry loop
+          break;
+        }
       }
 
-      // Get the current page after potential navigation (page context may have changed)
-      const pagesAfterSearch = stagehand.context.pages();
-      const activePage = pagesAfterSearch[pagesAfterSearch.length - 1] || page;
-
-      // Check if we're still on homepage (search navigation failed)
-      const finalUrl = activePage.url();
-      const stillOnHomepage = !searchResult.success && (
-        finalUrl === urlBeforeSearch ||
-        finalUrl === url ||
-        (finalUrl.replace(/\/$/, '') === url.replace(/\/$/, '')));
-
-      if (stillOnHomepage) {
-        console.log(`  [AI] ⚠ STILL ON HOMEPAGE - Search navigation completely failed`);
-      } else {
-        console.log(`  [AI] ✓ On results page: ${finalUrl}`);
-      }
-
-      // Wait for images to load before screenshot
-      console.log(`  [AI] Capturing results...`);
-      await activePage.evaluate(() => window.scrollTo(0, 0));
-      await new Promise(r => setTimeout(r, 500));  // Reduced from 1000
-
-      // Wait for images to actually load (shorter timeout)
-      try {
-        await activePage.evaluate(async () => {
-          const images = Array.from(document.querySelectorAll('img'));
-          await Promise.race([
-            Promise.all(images.slice(0, 10).map(img => {  // Reduced from 20
-              if (img.complete) return Promise.resolve();
-              return new Promise(resolve => {
-                img.onload = resolve;
-                img.onerror = resolve;
-              });
-            })),
-            new Promise(resolve => setTimeout(resolve, 2000)) // Reduced from 5s to 2s
-          ]);
-        });
-      } catch {
-        // Ignore image loading errors
-      }
-      await new Promise(r => setTimeout(r, 300)); // Reduced from 1000
-
-      // Check for error page BEFORE screenshot
-      const pageContent = await activePage.evaluate(() => document.body?.innerText || '');
-      const isErrorPage = pageContent.includes("This site can't be reached") ||
-        pageContent.includes("ERR_") ||
-        pageContent.includes("404") ||
-        pageContent.includes("Page not found") ||
-        pageContent.includes("cannot be displayed") ||
-        pageContent.includes("Connection failed");
-
+      // If still error page after retries, try to recover validation flow or skip
       if (isErrorPage) {
-        console.log(`  [AI] ⚠ ERROR PAGE DETECTED - Navigation failed completely`);
-        console.log(`  [AI] Attempting to return to homepage and retry...`);
-
-        // Try to recover - go back to homepage
+        console.log(`  [AI] Attempting to return to homepage to reset state...`);
         try {
           await activePage.goto(url, { waitUntil: 'domcontentloaded' });
-          await new Promise(r => setTimeout(r, 1000));  // Reduced from 2000
-        } catch {
-          // Ignore recovery errors
-        }
+          await new Promise(r => setTimeout(r, 1000));
+        } catch { }
       }
 
       const resultsScreenshotPath = getArtifactPath(jobId, domain, `results_${attempt}`, 'png');
@@ -1634,139 +1698,3 @@ Only output the JSON, no explanation.`
     // Build the journey narrative
     const journeySteps = queriesTested.map((q, i) => {
       const status = q.passed ? '✅' : '❌';
-      const resultText = q.resultCount !== null
-        ? `**${q.resultCount} returned, ${q.relevantResultCount} relevant**`
-        : 'unknown results';
-      const positionText = q.firstRelevantPosition
-        ? ` (First relevant: #${q.firstRelevantPosition})`
-        : '';
-      return `${i + 1}. "${q.query}" → ${status} ${resultText}${positionText}${q.passed ? '' : ' - FAILED'}`;
-    });
-
-    let narrativeSummary = '';
-    if (proofQuery) {
-      const passedCount = queriesTested.filter(q => q.passed).length;
-      narrativeSummary = `We tested ${domain}'s search with ${queriesTested.length} progressively harder queries.\n\n` +
-        journeySteps.join('\n') + '\n\n' +
-        `CONCLUSION: Search worked for ${passedCount} simple queries but failed on "${proofQuery}". ` +
-        `This indicates the search cannot handle ${failedOnAttempt && failedOnAttempt > 2 ? 'abstract/themed' : 'natural language'} queries that real shoppers commonly use.`;
-    } else {
-      narrativeSummary = `We tested ${domain}'s search with ${queriesTested.length} queries of increasing difficulty.\n\n` +
-        journeySteps.join('\n') + '\n\n' +
-        `CONCLUSION: Search handled all test queries well. This site has robust search capabilities.`;
-    }
-
-    // Generate LLM insight - a richer explanation of what this means
-    let queryInsight = '';
-    try {
-      const insightPrompt = proofQuery
-        ? `You are a search optimization expert analyzing an e-commerce site (${domain}, selling ${brandSummary}).
-
-We tested their search with ${queriesTested.length} queries. It handled ${queriesTested.filter(q => q.passed).length} queries but FAILED on: "${proofQuery}"
-Failure reason: ${failureReasoning}
-
-Write a 2-3 sentence insight explaining:
-1. Why this failure matters (lost sales opportunity)
-2. The type of customer behavior this represents (people search like this!)
-3. The business impact (concrete, e.g., "shoppers leave empty-handed")
-
-Be direct, conversational, and compelling. No jargon. This is for a sales pitch showing why they need better search.`
-        : `You are a search optimization expert. ${domain} (selling ${brandSummary}) passed all ${queriesTested.length} test queries.
-
-Write a 1-2 sentence summary acknowledging their search handles natural language well, but note there may still be edge cases worth exploring.`;
-
-      const insightResponse = await openai.chat.completions.create({
-        model: 'gpt-4.1-mini',
-        messages: [{ role: 'user', content: insightPrompt }],
-        max_tokens: 200,
-        temperature: 0.7
-      });
-
-      queryInsight = insightResponse.choices[0]?.message?.content?.trim() || '';
-    } catch (e: any) {
-      console.log(`  [AI] Insight generation failed: ${e.message}`);
-      // Fallback insight
-      queryInsight = proofQuery
-        ? `When a customer searches "${proofQuery}" and gets zero results, they don't try again—they leave. This represents real revenue walking out the door.`
-        : 'This site handles natural language search well across our test queries.';
-    }
-
-    // Generate "queries that would work" (simple keyword-based)
-    // Use the brand name (cleaned) instead of the raw AI-generated brandSummary
-    const brandKeyword = brandName.split(/\s+/)[0].toLowerCase();
-    const queriesThatWork = [
-      `${brandKeyword}`,
-      `new arrivals`,
-      `sale items`,
-      `best sellers`,
-      `${brandKeyword} for men`,
-      `${brandKeyword} for women`
-    ].filter(q => q.length > 2 && q.length < 40);
-
-    console.log(`\n[ADVERSARIAL] ========================================`);
-    console.log(`[ADVERSARIAL] VERDICT: ${verdict}`);
-    console.log(`[ADVERSARIAL] Queries tested: ${queriesTested.length}`);
-    console.log(`[ADVERSARIAL] Failed on: ${failedOnAttempt || 'none'}`);
-    console.log(`[ADVERSARIAL] Duration: ${durationMs}ms`);
-    console.log(`[ADVERSARIAL] ========================================\n`);
-
-    // Copy the failure screenshot to 'results.png' for frontend compatibility
-    const finalResultsPath = getArtifactPath(jobId, domain, 'results', 'png');
-    if (failureScreenshotPath && fs.existsSync(failureScreenshotPath)) {
-      fs.copyFileSync(failureScreenshotPath, finalResultsPath);
-    } else if (queriesTested.length > 0 && queriesTested[queriesTested.length - 1].screenshotPath) {
-      // Use last tested query's screenshot
-      fs.copyFileSync(queriesTested[queriesTested.length - 1].screenshotPath!, finalResultsPath);
-    }
-
-    // Return in legacy format for compatibility
-    const lastTest = queriesTested[queriesTested.length - 1];
-
-    return {
-      siteProfile,
-      nlQuery: proofQuery || lastTest?.query || '',
-      kwQuery: '', // No keyword search
-      searchResults: {
-        naturalLanguage: {
-          query: proofQuery || lastTest?.query || '',
-          screenshotPath: finalResultsPath,
-          resultCount: lastTest?.resultCount ?? null,
-          productsFound: lastTest?.productsFound || [],
-          searchSuccess: !proofQuery,
-          aiObservations: reason
-        },
-        keyword: {
-          query: '',
-          screenshotPath: '',
-          resultCount: null,
-          productsFound: [],
-          searchSuccess: false,
-          aiObservations: 'Keyword search removed - using adversarial testing'
-        },
-        homepageScreenshotPath
-      },
-      comparison: {
-        nlRelevance: proofQuery ? 'none' : 'high',
-        kwRelevance: 'none',
-        verdict,
-        reason
-      },
-      adversarial: {
-        queriesTested,
-        failedOnAttempt,
-        proofQuery
-      },
-      // NEW: Clean summary data
-      summary: {
-        narrative: narrativeSummary,
-        queriesThatWork,
-        journeySteps,
-        queryInsight
-      }
-    };
-
-  } catch (error) {
-    await stagehand.close();
-    throw error;
-  }
-}
