@@ -838,91 +838,105 @@ async function generateNextQuery(
 ): Promise<string> {
   const { domain, brandSummary, attempt, previousQueries } = context;
 
-  // PERSONA-BASED Query Generator - emulates real user search behavior
-  // Strategy: Solver (problem) → Hunter (specific) → Conversational (natural language)
+  // PERSONA-BASED Query Generator — generates the kind of queries
+  // that would be undeniable in a cold email to a Head of Ecommerce.
+  // Strategy: Occasion (short) → Edge Tester (attribute) → Natural Intent (implied need)
   const getProgressionPrompt = (attempt: number, brandSummary: string) => {
+    // Build list of previously tested queries to avoid repetition
+    const prevQueryList = previousQueries.length > 0
+      ? `\nALREADY TESTED (do NOT repeat or rephrase these):\n${previousQueries.map(q => `- "${q.query}"`).join('\n')}\n`
+      : '';
+
     let searchStrategy = '';
 
     if (attempt === 1) {
-      // THE SOLVER: Context/Problem/Occasion based
-      // GOAL: Find a "Hook" query where basic search might fail but AI search succeeds
-      searchStrategy = `ATTEMPT 1 (THE SOLVER - Context/Occasion):
-Generate a search query based on a specific CONTEXT, OCCASION, or PROBLEM.
-The intent should be clear to a human, but might be tricky for a basic keyword search.
+      // OCCASION QUERY: Short, simple, undeniable
+      // The kind of thing an ecommerce head would see and think "yeah, our customers search that"
+      searchStrategy = `ATTEMPT 1 (OCCASION / NEED — short and undeniable):
+Generate a SHORT search query based on an occasion, need, or use case.
+This query will be shown to a Head of Ecommerce in a cold email, so it MUST be
+something they'd immediately believe their customers type.
 
-GOOD EXAMPLES (Hyper-Realistic Hooks):
-- "outfit for bloating" (Problem solving)
-- "swimsuit for hip dips" (Body concern)
-- "rug safe for crawling baby" (Safety context)
-- "sweat proof gym set" (Performance need)
-- "bra that doesnt show through tshirts" (Specific constraint)
-- "sheets specifically for hot sleepers" (Benefit)
-- "shoes that wont destroy my feet at a wedding" (Real pain point)
+GOOD EXAMPLES (2-4 words, obviously real):
+- "wedding shoes"
+- "interview outfit"
+- "shoes for standing all day"
+- "winter boots"
+- "going out dress"
+- "work bag"
+- "outfit for vegas"
+- "rain jacket"
+- "baby shower dress"
 
-BAD EXAMPLES:
-- "shoes for plantar fasciitis" (Too medical/niche)
-- "comfortable clothes" (Too generic)
-- "items for problem" (Robot speak)
-- "stylish shoes for summer" (Nobody says 'stylish' — that's marketing speak)
-- "elegant evening wear" (Sounds like a catalog, not a real person)
+BAD EXAMPLES (too descriptive, too creative, too specific):
+- "cute shoes for brunch with friends" (Overwritten — nobody types this)
+- "stylish boots for fall" (Marketing speak)
+- "clothes that hide belly after big meal" (Ridiculous — nobody searches this)
+- "comfortable yet fashionable everyday sneakers" (Essay, not a search)
+- "shoes that won't hurt my feet at a party" (Too long and narrative)
 
-The query should sound like a REAL person typing their specific need/context into the search bar. Think text message, not magazine ad.`;
+Keep it to 2-4 words. Think: what would you actually type into a search bar?`;
     } else if (attempt === 2) {
-      // THE CONVERSATIONAL: Vibe/Implied Need
-      searchStrategy = `ATTEMPT 2 (THE CONVERSATIONAL - Vibe/Implied Need):
-Generate a search query that describes a VIBE, MOOD, or IMPLIED NEED.
-Short, punchy, and natural.
+      // EDGE TESTER: Specific attribute/need that tests search quality
+      // Designed to probe whether the search engine handles nuance
+      searchStrategy = `ATTEMPT 2 (EDGE TESTER — specific attribute that tests search limits):
+Generate a query with a SPECIFIC ATTRIBUTE or CONSTRAINT.
+This should be a real query that tests whether the search handles nuance or just keyword-matches.
 
-GOOD EXAMPLES (Hyper-Realistic Hooks):
-- "heels i can dance in" (Implies comfort + stability + party style)
-- "baddie birthday outfit" (Implies specific trendy style)
-- "shoes for disney world" (Implies walking 20k steps/comfort)
-- "outfit for first date" (Implies attractive but not trying too hard)
-- "gift for someone who has everything" (Implies unique/novelty)
+GOOD EXAMPLES (specific but natural):
+- "waterproof boots"
+- "shoes for wide feet"
+- "non-slip work shoes"
+- "strapless bra"
+- "wrinkle free pants"
+- "vegan leather bag"
+- "plus size swimsuit"
+- "steel toe boots"
+- "machine washable rug"
 
 BAD EXAMPLES:
-- "comfortable heels" (Too basic)
-- "party clothes" (Too generic)
-- "stylish shoes" (BANNED — nobody talks like this)
-- "chic outfit for brunch" (Too curated — real people say 'cute outfit for brunch')
-- "elegant dress for evening" (Catalog language, not human language)
+- "comfortable heels" (Too vague — what kind of comfort?)
+- "cute summer dresses for outdoor weddings" (Way too long)
+- "shoes that look great with jeans" (Narrative — not a search)
 
-The query should imply a set of product features (e.g. "dance in" = block heel/straps) without listing them. Write like you're texting a friend, not writing ad copy.`;
+Keep it 2-4 words. One clear attribute that the search either handles or doesn't.`;
     } else if (attempt === 3) {
-      // THE HUNTER: Specific but Human
-      searchStrategy = `ATTEMPT 3 (THE HUNTER - Specific but Human):
-Generate a search query for a specific type of item, but phrased naturally.
-Avoid keyword stuffing. Use the words real people use.
+      // NATURAL INTENT: Slightly longer, implies need without stating it
+      // This is the hardest query — tests if search understands intent
+      searchStrategy = `ATTEMPT 3 (NATURAL INTENT — implied need, slightly longer):
+Generate a query that implies what the user needs without spelling it out.
+This is the trickiest query — tests if search understands meaning, not just keywords.
 
-GOOD EXAMPLES (Hyper-Realistic Hooks):
-- "gold hoop earrings heavy duty" (Specific trait)
-- "black work pants stretchy" (Category + Benefit)
-- "white sneakers easy to clean" (Category + Maintenance)
-- "running gear for 40 degree weather" (Contextual specificity)
-- "makeup for dry skin" (Skin type constraint)
+GOOD EXAMPLES (3-6 words, natural):
+- "boots that go with dresses"
+- "shoes for disney world"
+- "what to wear hiking"
+- "running in the rain"
+- "first day of school outfit"
+- "gym bag that fits everything"
+- "jeans that don't stretch out"
 
 BAD EXAMPLES:
-- "premium genuine leather ankle boots waterproof" (Keyword stuffing)
-- "women's footwear black size 9" (Robot speak)
-- "stylish sustainable sneakers" (Marketing buzzwords — real people say 'cute sneakers that are eco friendly')
-- "trendy summer clothes" (Nobody searches this way)
+- "premium genuine leather ankle boots" (Keyword stuffing)
+- "comfy shoes for city exploring" (Bland — what is "city exploring"?)
+- "cute ankle boots for fall" (Adjective-first is marketing, not searching)
 
-The query should be specific but sound like a text message, not a catalog entry.`;
+The query should imply needs ("disney world" = walking 20k steps = comfort)
+without listing them.`;
     }
 
     return `You are generating a REALISTIC search query to test an e-commerce site: ${brandSummary}
-
+${prevQueryList}
 ${searchStrategy}
 
 CRITICAL RULES:
-- Sound like a REAL human customer searching (not a product catalog or ad)
-- Keep it under 10 words (usually 3-6 words is best)
-- Use natural language people actually type into search bars
-- NO medical terms unless relevant to brand
-- ADAPT TO THE BRAND: If searching a high-fashion site, search for 'club heels' not 'orthopedic shoes'
-- BANNED WORDS (never use these — they are marketing speak, not customer speak):
-  "stylish", "chic", "elegant", "trendy", "fashionable", "premium", "sophisticated", "stunning", "exquisite", "luxurious"
-  Instead use: "cute", "cool", "nice", "good", "comfy", "pretty", or just describe the need directly
+- 2-4 words is ideal. Maximum 6 words. Shorter is better.
+- Must sound like something a real customer would actually type
+- This query will appear in a cold email to a VP of Ecommerce, so it must be UNDENIABLE
+- NO adjectives like cute, stylish, chic, elegant, trendy, fashionable, premium, sophisticated
+- NO overly descriptive phrases — keep it tight
+- ADAPT TO THE BRAND: Match the brand's actual product category
+- If you can't imagine someone actually typing this into a search bar, REJECT IT
 
 Output: Just the search query itself. One line. No explanation.`;
   };
@@ -1000,11 +1014,11 @@ Rules for Relevance:
 
 Return a JSON object with:
   - relevant_result_count: (number) Count of results that actually meet the SPECIFIC intent.
-- top_match: (string) Title of the best match(or "None").
+- top_match: (string) Title of the best match(or "None"). Use the EXACT product title as shown on screen — do NOT paraphrase or invent product names.
 - significant_failure: (boolean) Set to TRUE if the search engine failed to understand the nuance(returned keyword matches that are wrong).
 - result_count: (number) Total results found.
 - first_relevant_position: (number or null) Position of first good result.
-- products_shown: (string[]) List of product titles.
+- products_shown: (string[]) List of EXACT product titles as they appear on the page. Do NOT make up names. If you cannot read the titles clearly, write "[unreadable]".
 - reasoning: (string) Explain strictly why it passed or failed.E.g. "Results were just generic heels, not suitable for dancing."`;
 
   // Helper to parse evaluation response
@@ -1601,14 +1615,16 @@ Write a 1-2 sentence summary acknowledging their search handles natural language
     }
 
     // Generate "queries that would work" (simple keyword-based)
+    // Use the brand name (cleaned) instead of the raw AI-generated brandSummary
+    const brandKeyword = brandName.split(/\s+/)[0].toLowerCase();
     const queriesThatWork = [
-      `${brandSummary.split(' ')[0].toLowerCase()}`, // First word of brand summary
+      `${brandKeyword}`,
       `new arrivals`,
       `sale items`,
       `best sellers`,
-      `${brandSummary.toLowerCase()} for men`,
-      `${brandSummary.toLowerCase()} for women`
-    ].filter(q => q.length > 2);
+      `${brandKeyword} for men`,
+      `${brandKeyword} for women`
+    ].filter(q => q.length > 2 && q.length < 40);
 
     console.log(`\n[ADVERSARIAL] ========================================`);
     console.log(`[ADVERSARIAL] VERDICT: ${verdict}`);
