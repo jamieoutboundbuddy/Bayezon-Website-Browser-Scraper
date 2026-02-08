@@ -877,29 +877,36 @@ BAD EXAMPLES (too descriptive, too creative, too specific):
 
 Keep it to 2-4 words. Think: what would you actually type into a search bar?`;
     } else if (attempt === 2) {
-      // EDGE TESTER: Specific attribute/need that tests search quality
-      // Designed to probe whether the search engine handles nuance
-      searchStrategy = `ATTEMPT 2 (EDGE TESTER — specific attribute that tests search limits):
-Generate a query with a SPECIFIC ATTRIBUTE or CONSTRAINT.
-This should be a real query that tests whether the search handles nuance or just keyword-matches.
+      // EDGE TESTER: Probe OUTSIDE the brand's core strength
+      // Designed to find gaps in catalog or search tagging
+      searchStrategy = `ATTEMPT 2 (EDGE TESTER — probe the brand's WEAK SPOTS):
+Generate a query that probes the EDGE of what this brand should handle.
+DO NOT query their obvious sweet spot — probe areas where they might be WEAK.
 
-GOOD EXAMPLES (specific but natural):
-- "waterproof boots"
-- "shoes for wide feet"
-- "non-slip work shoes"
-- "strapless bra"
-- "wrinkle free pants"
-- "vegan leather bag"
-- "plus size swimsuit"
-- "steel toe boots"
-- "machine washable rug"
+STRATEGY: Think about what a CUSTOMER of this product category would search,
+but that THIS SPECIFIC BRAND might not serve well:
+- If a shoe brand focuses on casual/eco → try "dress shoes" or "steel toe boots" or "kids shoes"
+- If a clothing brand is trendy fast-fashion → try "petite dresses" or "plus size jeans" or "work blazer"
+- If a brand is niche → try adjacent categories they probably don't stock well
+- If a brand is premium → try budget-adjacent queries like "under $50"
+
+GOOD EXAMPLES (probe weak spots):
+- "dress shoes" (tests casual-focused brands)
+- "shoes for flat feet" (podiatric need — rarely tagged)
+- "wide width heels" (specific fit constraint)
+- "kids sneakers" (age segment many brands skip)
+- "steel toe boots" (safety — opposite of fashion)
+- "plus size swimsuit" (size inclusivity test)
+- "petite jeans" (sizing niche)
+- "non-slip work shoes" (function over fashion)
 
 BAD EXAMPLES:
-- "comfortable heels" (Too vague — what kind of comfort?)
-- "cute summer dresses for outdoor weddings" (Way too long)
-- "shoes that look great with jeans" (Narrative — not a search)
+- "comfortable sneakers" (This is the sweet spot for most shoe brands — too easy)
+- "recycled material shoes" (This is a VALUE PROP, not an edge test)
+- "casual shoes" (Way too broad — everything matches)
 
-Keep it 2-4 words. One clear attribute that the search either handles or doesn't.`;
+Keep it 2-4 words. The query should be something a real customer would search,
+but that THIS brand's search engine might struggle with.`;
     } else if (attempt === 3) {
       // NATURAL INTENT: Slightly longer, implies need without stating it
       // This is the hardest query — tests if search understands intent
@@ -935,7 +942,8 @@ CRITICAL RULES:
 - This query will appear in a cold email to a VP of Ecommerce, so it must be UNDENIABLE
 - NO adjectives like cute, stylish, chic, elegant, trendy, fashionable, premium, sophisticated
 - NO overly descriptive phrases — keep it tight
-- ADAPT TO THE BRAND: Match the brand's actual product category
+- ATTEMPTS 1 & 3: Match the brand's actual product category
+- ATTEMPT 2: Probe OUTSIDE the brand's core — test breadth, not depth
 - If you can't imagine someone actually typing this into a search bar, REJECT IT
 
 Output: Just the search query itself. One line. No explanation.`;
