@@ -828,6 +828,7 @@ async function executeSearchWithFallbacks(
 interface QueryGenerationContext {
   domain: string;
   brandSummary: string;
+  brandResearch: any | null;
   attempt: number;
   previousQueries: QueryTestResult[];
 }
@@ -836,7 +837,7 @@ async function generateNextQuery(
   openai: OpenAI,
   context: QueryGenerationContext
 ): Promise<string> {
-  const { domain, brandSummary, attempt, previousQueries } = context;
+  const { domain, brandSummary, brandResearch, attempt, previousQueries } = context;
 
   // PERSONA-BASED Query Generator — generates the kind of queries
   // that would be undeniable in a cold email to a Head of Ecommerce.
@@ -877,40 +878,29 @@ BAD EXAMPLES (too descriptive, too creative, too specific):
 
 Keep it to 2-4 words. Think: what would you actually type into a search bar?`;
     } else if (attempt === 2) {
-      // EDGE TESTER: Probe OUTSIDE the brand's core strength
-      // Designed to find gaps in catalog or search tagging
-      searchStrategy = `ATTEMPT 2 (EDGE TESTER — probe the brand's WEAK SPOTS):
-Generate a query for a product type this brand DOES NOT SELL but that customers
-of this product category WOULD reasonably search for.
+      // EDGE TESTER: Use brand research to probe CREDIBLE catalog gaps
+      const edgeQueries = brandResearch?.credibleEdgeQueries?.join(', ') || 'dress shoes, kids shoes, wide width shoes';
+      const notSold = brandResearch?.categoriesNotSold?.join(', ') || 'unknown';
+      const productTypes = brandResearch?.productTypes?.join(', ') || 'unknown';
+      searchStrategy = `ATTEMPT 2 (EDGE TESTER — credible catalog gap):
+Pick a search query that targets a CREDIBLE gap in this brand's catalog.
 
-GOLDEN RULE: Pick something a customer would expect a ${brandSummary.includes('shoe') || brandSummary.includes('Shoe') ? 'shoe' : brandSummary.includes('cloth') || brandSummary.includes('Cloth') ? 'clothing' : 'general'} site to have,
-but that THIS specific brand almost certainly does not carry.
+BRAND RESEARCH:
+- This brand sells: ${productTypes}
+- This brand does NOT sell: ${notSold}
+- Credible edge test queries for this brand: ${edgeQueries}
 
-STRATEGY — pick from these angles:
-- AUDIENCE GAP: "kids shoes", "toddler shoes", "baby clothes" (if brand is adults-only)
-- FORMALITY GAP: "dress shoes", "high heels", "suits" (if brand is casual-focused)
-- FUNCTION GAP: "steel toe boots", "non-slip shoes", "safety glasses" (if brand is lifestyle)
-- FIT/BODY GAP: "wide width shoes", "petite dresses", "tall sizes" (niche fit needs)
-- HEALTH GAP: "shoes for flat feet", "arch support", "orthopedic shoes" (medical needs)
+RULES:
+1. Pick a query from the "credible edge test queries" list above, or create one
+   that targets the "does NOT sell" categories.
+2. The query MUST be something a real customer of this product category would search.
+   A Head of Ecommerce must read this query and think "yeah, our customers do search that."
+3. Do NOT pick something absurdly outside the brand's domain.
+   BAD: "high heels" on an eco-sneaker site — no one goes there for heels.
+   GOOD: "shoes for flat feet" on an eco-sneaker site — real shoe buyers search this.
+4. The query should expose a GAP the brand can't serve, not test their core strength.
 
-GOOD EXAMPLES (target catalog GAPS):
-- "dress shoes" (casual brands don't carry formal)
-- "kids shoes" (many brands are adults-only)
-- "high heels" (eco/comfort brands don't carry these)
-- "shoes for flat feet" (medical need nobody tags)
-- "wide width shoes" (sizing gap)
-- "steel toe boots" (safety — opposite of fashion)
-- "plus size swimsuit" (inclusivity test)
-- "maternity clothes" (life-stage gap)
-
-BAD EXAMPLES (too close to what they sell):
-- "work boots" (many brands have some boots — too easy to pass)
-- "comfortable sneakers" (sweet spot for most shoe brands)
-- "recycled material shoes" (VALUE PROP, not an edge test)
-- "casual shoes" (Way too broad — everything matches)
-- "waterproof boots" (Many brands can serve this)
-
-Keep it 2-4 words. Pick something they CANNOT serve well.`;
+Keep it 2-4 words. Pick from the credible edge queries above if possible.`;
     } else if (attempt === 3) {
       // NATURAL INTENT: Slightly longer, implies need without stating it
       // This is the hardest query — tests if search understands intent
@@ -1240,65 +1230,49 @@ export async function aiFullAnalysis(
     });
     console.log(`  [AI] ✓ Homepage saved: ${homepageScreenshotPath}`);
 
-    // Get brand understanding from homepage screenshot (NOT just domain name)
+    // Research the brand using LLM knowledge (faster + more accurate than screenshot analysis)
     let brandSummary = 'E-commerce retailer';
+    let brandResearch: any = null;
     try {
-      const homepageBase64 = fs.readFileSync(homepageScreenshotPath).toString('base64');
       const brandResponse = await openai.chat.completions.create({
         model: 'gpt-4o',
         messages: [{
           role: 'user',
-          content: [
-            {
-              type: 'text',
-              text: `Analyze this e-commerce homepage and extract:
+          content: `You are an e-commerce expert. Research the brand at ${domain} using your knowledge.
 
-1. PRIMARY PRODUCT CATEGORY (2-4 words, e.g. "Athletic footwear", "Outdoor clothing")
-   - Focus on actual product type, NOT designs/graphics on products
-   
-2. TARGET AUDIENCE (one sentence, e.g. "Budget-conscious parents", "High-end athletes")
-
-3. KEY BUYING MOTIVATIONS (comma-separated, e.g. "Gift giving, Performance, Style")
-
-4. THREE BUYER PERSONAS for search testing:
-   a) THE SOLVER: Problem/context-based shopper (e.g. someone with plantar fasciitis, needs gear for trip)
-   b) THE HUNTER: Multi-attribute specific shopper (e.g. seeking "gore-tex wide fit trail shoes")
-   c) THE CONVERSATIONAL: Natural language, vague intent (e.g. "what should I wear for...")
-
-Return JSON:
+Return a JSON object with:
 {
-  "category": "...",
-  "audience": "...",
-  "motivations": "...",
-  "personas": {
-    "solver": "brief description of their problem/context",
-    "hunter": "brief description of what specific attributes they seek",
-    "conversational": "brief description of their vague shopping intent"
-  }
-}`
-            },
-            {
-              type: 'image_url',
-              image_url: {
-                url: `data:image/png;base64,${homepageBase64}`,
-                detail: 'low'
-              }
-            }
-          ]
+  "category": "Primary product category in 2-4 words (e.g. 'Sustainable casual footwear')",
+  "audience": "Target audience in one sentence (e.g. 'Eco-conscious millennials who prioritize comfort')",
+  "productTypes": ["list of product types they actually sell, e.g. 'running shoes', 'wool sneakers', 'socks', 'insoles'"],
+  "categoriesNotSold": ["list of product types that customers of this PRODUCT CATEGORY would search for, but this brand DOES NOT carry. CRITICAL: these must be things a real customer of this product category would search for on any site in this category, but that THIS specific brand doesn't sell. For example, if it's a casual shoe brand, include 'dress shoes', 'kids shoes', etc. Do NOT include absurdly unrelated categories like 'high heels' on an eco-sneaker site."],
+  "credibleEdgeQueries": ["3-5 specific search queries that would be CREDIBLE in a cold email — things a real customer of this product category would search for, that this brand likely can't serve well. These should be undeniable: any ecommerce head would agree their customers search these terms."]
+}
+
+IMPORTANT for categoriesNotSold and credibleEdgeQueries:
+- Must be CREDIBLE — someone shopping for ${domain}'s product category would realistically search these
+- Must be RELEVANT — adjacent to what the brand sells, not absurdly different
+- Example: For Allbirds (eco-casual shoes): "dress shoes" YES, "shoes for flat feet" YES, "high heels" NO (no shoe customer goes to Allbirds for heels)
+- Example: For Steve Madden (fashion shoes): "steel toe boots" YES, "orthopedic shoes" YES, "running shoes" YES (fashion shoe buyers also need these)
+- Example: For Fashion Nova (trendy fashion): "maternity clothes" YES, "work blazer" YES, "ski jacket" NO (not credible)
+
+Only output the JSON, no explanation.`
         }],
-        max_completion_tokens: 300,
+        max_completion_tokens: 500,
         temperature: 0
       });
 
       const responseContent = brandResponse.choices[0]?.message?.content?.trim() || '';
-      console.log(`  [AI] Site profiling response:`, responseContent.substring(0, 200));
+      console.log(`  [AI] Brand research response:`, responseContent.substring(0, 300));
 
       try {
         const jsonMatch = responseContent.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
-          const profileData = JSON.parse(jsonMatch[0]);
-          brandSummary = `${profileData.category || 'E-commerce retailer'} | ${profileData.audience || 'General shoppers'}`;
-          console.log(`  [AI] Personas extracted:`, profileData.personas);
+          brandResearch = JSON.parse(jsonMatch[0]);
+          brandSummary = `${brandResearch.category || 'E-commerce retailer'} | ${brandResearch.audience || 'General shoppers'}`;
+          console.log(`  [AI] Products sold:`, brandResearch.productTypes?.join(', '));
+          console.log(`  [AI] Categories NOT sold:`, brandResearch.categoriesNotSold?.join(', '));
+          console.log(`  [AI] Credible edge queries:`, brandResearch.credibleEdgeQueries?.join(', '));
         } else {
           brandSummary = responseContent.substring(0, 100) || brandSummary;
         }
@@ -1307,7 +1281,7 @@ Return JSON:
         brandSummary = responseContent.substring(0, 100) || brandSummary;
       }
     } catch (e: any) {
-      console.log(`  [AI] Brand detection failed: ${e.message}, using default`);
+      console.log(`  [AI] Brand research failed: ${e.message}, using default`);
     }
     console.log(`  [AI] Brand: ${brandSummary}`);
 
@@ -1334,6 +1308,7 @@ Return JSON:
       const query = await generateNextQuery(openai, {
         domain,
         brandSummary,
+        brandResearch,
         attempt,
         previousQueries: queriesTested
       });
