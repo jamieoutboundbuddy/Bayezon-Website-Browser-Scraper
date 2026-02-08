@@ -65,10 +65,4 @@ model BatchJobItem {
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
 
-  batch      BatchJob @relation(fields: [batchId], references: [batchId])
-
-  @@index([batchId])
-  @@map("batch_job_items")
-}
-
-
+  batch      BatchJob @relation(fiel

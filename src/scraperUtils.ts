@@ -57,7 +57,7 @@ export async function waitForProducts(page: any): Promise<void> {
         await page.waitForFunction((selectors: string[]) => {
             // @ts-ignore
             return selectors.some(s => document.querySelector(s));
-        }, { timeout: 5000 }, selectors);
+        }, { timeout: 15000 }, selectors);
 
         console.log('  [Utils] ✓ Product content detected');
     } catch (e) {

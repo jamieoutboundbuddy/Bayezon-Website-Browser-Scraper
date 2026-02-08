@@ -763,30 +763,44 @@ export async function executeSearchWithFallbacks(
   console.log(`  [SEARCH] Layer 5: Trying direct URL navigation...`);
 
   // Build site-specific patterns based on domain
+  // Build site-specific patterns based on domain
   const domainLower = domain.toLowerCase();
+
+  // Define site-specific patterns first for priority
+  const siteSpecificPatterns: string[] = [];
+
+  if (domainLower.includes('macys')) {
+    siteSpecificPatterns.push(
+      `/shop/search?keyword=${encodeURIComponent(query)}`,
+      `/shop/featured/${encodeURIComponent(query)}`
+    );
+  }
+
+  if (domainLower.includes('famousfootwear')) {
+    siteSpecificPatterns.push(
+      `/search/${encodeURIComponent(query)}`,
+      `/#q=${encodeURIComponent(query)}`
+    );
+  }
+
+  if (domainLower.includes('uniqlo')) {
+    siteSpecificPatterns.push(
+      `/us/en/search/?q=${encodeURIComponent(query)}`
+    );
+  }
+
   const searchUrlPatterns = [
+    ...siteSpecificPatterns, // Priority first
     `/search?q=${encodeURIComponent(query)}`,
     `/search?query=${encodeURIComponent(query)}`,
     `/search?s=${encodeURIComponent(query)}`,
     `?q=${encodeURIComponent(query)}`,
     `/pages/search-results?q=${encodeURIComponent(query)}`,
-    // Department stores / SPA sites
+    // Department stores / SPA sites (Generic backups)
     `/shop/search?keyword=${encodeURIComponent(query)}`,
     `/s/${encodeURIComponent(query)}`,
     `/catalogsearch/result/?q=${encodeURIComponent(query)}`,
     `/search/${encodeURIComponent(query)}`,
-    // Site-specific patterns
-    ...(domainLower.includes('macys') ? [
-      `/shop/search?keyword=${encodeURIComponent(query)}`,
-      `/shop/featured/${encodeURIComponent(query)}`
-    ] : []),
-    ...(domainLower.includes('famousfootwear') ? [
-      `/search/${encodeURIComponent(query)}`,
-      `/#q=${encodeURIComponent(query)}`
-    ] : []),
-    ...(domainLower.includes('uniqlo') ? [
-      `/us/en/search/?q=${encodeURIComponent(query)}`
-    ] : []),
   ];
 
   for (const pattern of searchUrlPatterns) {
