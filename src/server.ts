@@ -4,6 +4,8 @@
 
 console.log('[SERVER] Starting module imports...');
 
+const uploadRateLimit = new Map<string, number>();
+
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -16,24 +18,24 @@ import {
   getJob,
   cleanupOldJobs,
 } from './jobs';
-import { 
-  SmartAnalysisResult, 
-  SiteProfile, 
-  TestQueries, 
+import {
+  SmartAnalysisResult,
+  SiteProfile,
+  TestQueries,
   ComparisonAnalysis
 } from './types';
 import { isOpenAIConfigured } from './analyze';
 import { aiFullAnalysis } from './aiAgent';
 import { getDb } from './db';
-import { 
-  getArtifactUrl, 
-  normalizeDomain, 
-  getDomainName 
+import {
+  getArtifactUrl,
+  normalizeDomain,
+  getDomainName
 } from './utils';
-import { 
-  startBatchProcessor, 
+import {
+  startBatchProcessor,
   triggerBatchProcessing,
-  getProcessorStatus 
+  getProcessorStatus
 } from './batchProcessor';
 
 console.log('[SERVER] All imports complete, loading config...');
@@ -50,7 +52,7 @@ app.use(express.static('public'));
 app.use('/artifacts', express.static('artifacts'));
 
 // Multer configuration for CSV uploads
-const upload = multer({ 
+const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 50 * 1024 * 1024 } // 50MB max
 });
@@ -59,16 +61,16 @@ const upload = multer({
 const verifyCsvPassword = (req: any, res: any, next: any) => {
   const password = req.headers['x-csv-password'] || req.body.password;
   const csvPassword = process.env.CSV_UPLOAD_PASSWORD;
-  
+
   if (!csvPassword) {
     console.warn('[CSV] CSV_UPLOAD_PASSWORD not set in environment');
     return res.status(500).json({ error: 'CSV upload not configured' });
   }
-  
+
   if (!password || password !== csvPassword) {
     return res.status(401).json({ error: 'Invalid CSV upload password' });
   }
-  
+
   next();
 };
 
@@ -101,11 +103,11 @@ app.get('/api/job/:jobId', (req: Request, res: Response) => {
   try {
     const { jobId } = req.params;
     const job = getJob(jobId);
-    
+
     if (!job) {
       return res.status(404).json({ error: 'Job not found' });
     }
-    
+
     res.json(job.result);
   } catch (error: any) {
     console.error('Error getting job:', error);
@@ -135,47 +137,47 @@ app.get('/api/config', (req: Request, res: Response) => {
  */
 app.post('/api/analyze', async (req: Request, res: Response) => {
   const { domain } = req.body;
-  
+
   if (!domain) {
     return res.status(400).json({ error: 'domain is required' });
   }
-  
+
   // Check if OpenAI is configured (required for smart analysis)
   if (!isOpenAIConfigured()) {
-    return res.status(400).json({ 
+    return res.status(400).json({
       error: 'OpenAI API key not configured. Set OPENAI_API_KEY environment variable.',
       hint: 'Smart analysis requires OpenAI for AI-powered browser control'
     });
   }
-  
+
   const startTime = Date.now();
   const jobId = createJob(domain, 'smart-analysis');
   const normalizedDomain = normalizeDomain(domain);
   const domainName = getDomainName(normalizedDomain);
-  
+
   try {
     console.log(`\n[ANALYZE] ========================================`);
     console.log(`[ANALYZE] Starting AI-powered Smart analysis for: ${domain}`);
     console.log(`[ANALYZE] Job ID: ${jobId}`);
     console.log(`[ANALYZE] ========================================\n`);
-    
+
     // Use AI Agent (Stagehand) for the entire analysis - this works on ANY website
     const aiResult = await aiFullAnalysis(jobId, domain);
-    
+
     // Build screenshot URLs
     const baseUrl = getBaseUrl(req);
     const screenshotUrls: Record<string, string> = {
       homepage: `${baseUrl}${getArtifactUrl(jobId, domainName, 'homepage')}`,
       results: `${baseUrl}${getArtifactUrl(jobId, domainName, 'results')}`
     };
-    
+
     // Add individual query result screenshots if available
     if (aiResult.adversarial?.queriesTested) {
       aiResult.adversarial.queriesTested.forEach((q, i) => {
         screenshotUrls[`results_${i + 1}`] = `${baseUrl}${getArtifactUrl(jobId, domainName, `results_${i + 1}`)}`;
       });
     }
-    
+
     // Convert AI Agent result to SmartAnalysisResult format
     const searchTypeMap: Record<string, 'modal' | 'page' | 'instant' | 'unknown'> = {
       'visible_input': 'instant',
@@ -183,7 +185,7 @@ app.post('/api/analyze', async (req: Request, res: Response) => {
       'hamburger_menu': 'modal',
       'none': 'unknown'
     };
-    
+
     const siteProfile: SiteProfile = {
       company: aiResult.siteProfile.companyName,
       industry: aiResult.siteProfile.industry,
@@ -193,7 +195,7 @@ app.post('/api/analyze', async (req: Request, res: Response) => {
       hasSearch: aiResult.siteProfile.hasSearch,
       searchType: searchTypeMap[aiResult.siteProfile.searchType] || 'unknown'
     };
-    
+
     // Simplified comparison - no keyword search
     const comparison: ComparisonAnalysis = {
       nlResultCount: aiResult.searchResults.naturalLanguage.resultCount,
@@ -206,26 +208,26 @@ app.post('/api/analyze', async (req: Request, res: Response) => {
       verdict: aiResult.comparison.verdict,
       verdictReason: aiResult.comparison.reason
     };
-    
+
     // Include adversarial testing info in queries
     const queries: TestQueries = {
       naturalLanguageQuery: aiResult.nlQuery,
       keywordQuery: '',  // No keyword search
       queryBasis: 'inferred',
-      expectedBehavior: aiResult.adversarial?.proofQuery 
-        ? `Search failed on "${aiResult.adversarial.proofQuery}"` 
+      expectedBehavior: aiResult.adversarial?.proofQuery
+        ? `Search failed on "${aiResult.adversarial.proofQuery}"`
         : `Tested ${aiResult.adversarial?.queriesTested.length || 1} queries`
     };
-    
+
     const confidence = {
-      level: aiResult.adversarial?.proofQuery 
+      level: aiResult.adversarial?.proofQuery
         ? 'high' as const  // High confidence when we found a failure
         : 'medium' as const,
-      reasons: aiResult.adversarial?.queriesTested.map(q => 
+      reasons: aiResult.adversarial?.queriesTested.map(q =>
         `Query ${q.attempt}: "${q.query}" → ${q.passed ? 'PASSED' : 'FAILED'}`
       ) || [`Tested: ${aiResult.nlQuery}`]
     };
-    
+
     // Save to database (optional - don't fail if DB not available)
     try {
       const db = getDb();
@@ -250,7 +252,7 @@ app.post('/api/analyze', async (req: Request, res: Response) => {
       console.error(`[ANALYZE] Failed to save to database (continuing anyway):`, dbError);
       // Continue anyway - don't fail the request just because DB save failed
     }
-    
+
     const result: SmartAnalysisResult & { adversarial?: any; summary?: any } = {
       jobId,
       domain,
@@ -258,10 +260,9 @@ app.post('/api/analyze', async (req: Request, res: Response) => {
       queriesTested: queries,
       comparison,
       confidence,
-      emailHook: aiResult.adversarial?.proofQuery 
-        ? `I searched for "${aiResult.adversarial.proofQuery}" on your site and got ${
-            aiResult.searchResults.naturalLanguage.resultCount === 0 ? 'zero results' : 'irrelevant results'
-          }. This is exactly the kind of query your customers are typing.`
+      emailHook: aiResult.adversarial?.proofQuery
+        ? `I searched for "${aiResult.adversarial.proofQuery}" on your site and got ${aiResult.searchResults.naturalLanguage.resultCount === 0 ? 'zero results' : 'irrelevant results'
+        }. This is exactly the kind of query your customers are typing.`
         : null,
       screenshotUrls,
       durationMs: Date.now() - startTime,
@@ -269,17 +270,17 @@ app.post('/api/analyze', async (req: Request, res: Response) => {
       adversarial: aiResult.adversarial,
       summary: aiResult.summary
     };
-    
+
     console.log(`\n[ANALYZE] ========================================`);
     console.log(`[ANALYZE] Completed in ${result.durationMs}ms`);
     console.log(`[ANALYZE] Verdict: ${comparison.verdict}`);
     console.log(`[ANALYZE] ========================================\n`);
-    
+
     res.json(result);
-    
+
   } catch (error: any) {
     console.error(`[ANALYZE] Error:`, error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: error.message || 'Smart analysis failed',
       jobId,
       hint: 'Check that OPENAI_API_KEY and BROWSERBASE credentials are correct'
@@ -294,13 +295,22 @@ app.post('/api/analyze', async (req: Request, res: Response) => {
  */
 app.post('/api/batch/upload', verifyCsvPassword, upload.single('file'), async (req: any, res: any) => {
   try {
+    // Rate limiting
+    const now = Date.now();
+    const ip = req.ip || 'unknown';
+    const lastUpload = uploadRateLimit.get(ip);
+    if (lastUpload && now - lastUpload < 60000) {
+      return res.status(429).json({ error: 'Too many uploads. Please wait 1 minute.' });
+    }
+    uploadRateLimit.set(ip, now);
+
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
     }
 
     const batchId = uuidv4();
     const csvContent = req.file.buffer.toString('utf-8');
-    
+
     // Parse CSV
     let records: any[];
     try {
@@ -319,9 +329,26 @@ app.post('/api/batch/upload', verifyCsvPassword, upload.single('file'), async (r
 
     // Validate CSV has 'domain' column
     if (!records[0].domain) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         error: 'CSV must have a "domain" column. Headers found: ' + Object.keys(records[0]).join(', ')
       });
+    }
+
+    // Deduplicate domains
+    const uniqueDomains = new Set<string>();
+    const uniqueRecords = records.filter((record: any) => {
+      const domain = record.domain?.trim().toLowerCase();
+      if (!domain || uniqueDomains.has(domain)) {
+        return false;
+      }
+      uniqueDomains.add(domain);
+      return true;
+    });
+
+    records = uniqueRecords;
+
+    if (records.length === 0) {
+      return res.status(400).json({ error: 'No valid unique domains found in CSV' });
     }
 
     const db = getDb();
@@ -369,9 +396,21 @@ app.post('/api/batch/upload', verifyCsvPassword, upload.single('file'), async (r
 });
 
 /**
+ * GET /api/batch/processor/status - Get batch processor status
+ * Moved before /:batchId to avoid route conflict
+ */
+app.get('/api/batch/processor/status', verifyCsvPassword, (req: any, res: any) => {
+  const status = getProcessorStatus();
+  res.json({
+    ...status,
+    message: status.running ? 'Batch processor is active' : 'Batch processor is stopped'
+  });
+});
+
+/**
  * GET /api/batch/:batchId - Get batch job status and progress
  */
-app.get('/api/batch/:batchId', async (req: any, res: any) => {
+app.get('/api/batch/:batchId', verifyCsvPassword, async (req: any, res: any) => {
   try {
     const db = getDb();
     if (!db) {
@@ -429,7 +468,7 @@ app.get('/api/batch/:batchId', async (req: any, res: any) => {
 /**
  * GET /api/batch/:batchId/results - Get batch results with pagination
  */
-app.get('/api/batch/:batchId/results', async (req: any, res: any) => {
+app.get('/api/batch/:batchId/results', verifyCsvPassword, async (req: any, res: any) => {
   try {
     const { limit = 50, offset = 0 } = req.query;
     const db = getDb();
@@ -446,7 +485,7 @@ app.get('/api/batch/:batchId/results', async (req: any, res: any) => {
     }
 
     const items = await db.batchJobItem.findMany({
-      where: { 
+      where: {
         batchId: req.params.batchId,
         status: 'completed'
       },
@@ -475,7 +514,7 @@ app.get('/api/batch/:batchId/results', async (req: any, res: any) => {
 /**
  * GET /api/batch/:batchId/failed - Get failed items for retry
  */
-app.get('/api/batch/:batchId/failed', async (req: any, res: any) => {
+app.get('/api/batch/:batchId/failed', verifyCsvPassword, async (req: any, res: any) => {
   try {
     const db = getDb();
     if (!db) {
@@ -491,7 +530,7 @@ app.get('/api/batch/:batchId/failed', async (req: any, res: any) => {
     }
 
     const failedItems = await db.batchJobItem.findMany({
-      where: { 
+      where: {
         batchId: req.params.batchId,
         status: 'failed'
       },
@@ -520,7 +559,7 @@ app.get('/api/batch/:batchId/failed', async (req: any, res: any) => {
 app.post('/api/batch/:batchId/start', verifyCsvPassword, async (req: any, res: any) => {
   try {
     const success = await triggerBatchProcessing(req.params.batchId);
-    
+
     if (!success) {
       return res.status(404).json({ error: 'Batch not found' });
     }
@@ -536,16 +575,7 @@ app.post('/api/batch/:batchId/start', verifyCsvPassword, async (req: any, res: a
   }
 });
 
-/**
- * GET /api/batch/processor/status - Get batch processor status
- */
-app.get('/api/batch/processor/status', (req: any, res: any) => {
-  const status = getProcessorStatus();
-  res.json({
-    ...status,
-    message: status.running ? 'Batch processor is active' : 'Batch processor is stopped'
-  });
-});
+
 
 /**
  * Cleanup old jobs periodically
@@ -577,21 +607,21 @@ async function verifyDatabaseTables() {
       console.error('[DB] Database connection not available');
       return;
     }
-    
+
     console.log('[DB] Checking database tables...');
-    const tables = await db.$queryRaw<{table_name: string}[]>`
+    const tables = await db.$queryRaw<{ table_name: string }[]>`
       SELECT table_name 
       FROM information_schema.tables 
       WHERE table_schema = 'public'
     `;
-    
+
     const tableNames = tables.map(t => t.table_name);
     console.log('[DB] Found tables:', tableNames.join(', '));
-    
+
     // Check for required batch tables
     const requiredTables = ['batch_jobs', 'batch_job_items'];
     const missingTables = requiredTables.filter(t => !tableNames.includes(t));
-    
+
     if (missingTables.length > 0) {
       console.error('[DB] Missing required tables:', missingTables.join(', '));
       console.error('[DB] Run "npx prisma db push" to create missing tables');
@@ -610,10 +640,13 @@ if (process.env.VERCEL !== '1') {
   app.listen(PORT, '0.0.0.0', async () => {
     console.log(`🚀 Website Search Tool server running on http://localhost:${PORT}`);
     console.log(`📸 Screenshots will be saved to ./artifacts/`);
-    
+
     // Verify database tables
     await verifyDatabaseTables();
-    
+
+    // Recover stuck items
+    await import('./batchProcessor').then(m => m.recoverStuckItems());
+
     // Start the batch processor
     startBatchProcessor();
   });

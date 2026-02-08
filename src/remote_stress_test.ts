@@ -24,18 +24,17 @@ const domains = [
 
 async function runTest() {
     // Ensure URL doesn't end with slash
-    const baseUrl = TARGET_URL.replace(/\/$/, '');
+    const baseUrl = (TARGET_URL || '').replace(/\/$/, '');
     console.log(`Starting stress test against: ${baseUrl}`);
 
-    const results: any[] = [];
 
-    for (const domain of domains) {
-        console.log(`\n----------------------------------------`);
-        console.log(`Testing ${domain}...`);
+
+    const promises = domains.map(async (domain) => {
+        console.log(`Starting test for ${domain}...`);
         const startTime = Date.now();
 
         try {
-            // 5-minute timeout per site (some analyses take 3-4 mins)
+            // 5-minute timeout per site
             const controller = new AbortController();
             const timeout = setTimeout(() => controller.abort(), 5 * 60 * 1000);
 
@@ -59,42 +58,47 @@ async function runTest() {
             const duration = (Date.now() - startTime) / 1000;
 
             if (response.ok) {
-                console.log(`✅ ${domain}: SUCCESS (${duration.toFixed(1)}s)`);
-                console.log(`   Verdict: ${data.comparison?.verdict}`);
-                if (data.confidence) console.log(`   Confidence: ${data.confidence.level}`);
-                // Log brief summary
-                if (data.comparison?.verdictReason) {
-                    console.log(`   Reason: ${data.comparison.verdictReason}`);
-                }
+                const msg = [
+                    `✅ ${domain}: SUCCESS (${duration.toFixed(1)}s)`,
+                    `   Verdict: ${data.comparison?.verdict}`,
+                    data.confidence ? `   Confidence: ${data.confidence.level}` : null,
+                    data.comparison?.verdictReason ? `   Reason: ${data.comparison.verdictReason}` : null
+                ].filter(Boolean).join('\n');
+                console.log(msg);
 
-                results.push({
+                return {
                     domain,
                     status: 'success',
                     verdict: data.comparison?.verdict,
                     duration
-                });
+                };
             } else {
-                console.log(`❌ ${domain}: FAILED (${duration.toFixed(1)}s)`);
-                console.log(`   Error: ${data.error || response.statusText}`);
-                if (data.hint) console.log(`   Hint: ${data.hint}`);
+                const msg = [
+                    `❌ ${domain}: FAILED (${duration.toFixed(1)}s)`,
+                    `   Error: ${data.error || response.statusText}`,
+                    data.hint ? `   Hint: ${data.hint}` : null
+                ].filter(Boolean).join('\n');
+                console.log(msg);
 
-                results.push({
+                return {
                     domain,
                     status: 'failed',
                     error: data.error,
                     duration
-                });
+                };
             }
 
         } catch (e: any) {
             console.log(`❌ ${domain}: NETWORK ERROR - ${e.message}`);
-            results.push({
+            return {
                 domain,
                 status: 'network_error',
                 error: e.message
-            });
+            };
         }
-    }
+    });
+
+    const results = await Promise.all(promises);
 
     console.log(`\n========================================`);
     console.log(`SUMMARY`);

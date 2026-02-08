@@ -1,0 +1,38 @@
+[
+  {
+    "domain": "stevemadden.com",
+    "queriesTested": [],
+    "issues": [
+      {
+        "site": "stevemadden.com",
+        "severity": "CRITICAL",
+        "field": "EXECUTION",
+        "message": "Fatal error: OPENAI_API_KEY environment variable is not set"
+      }
+    ]
+  },
+  {
+    "domain": "fashionnova.com",
+    "queriesTested": [],
+    "issues": [
+      {
+        "site": "fashionnova.com",
+        "severity": "CRITICAL",
+        "field": "EXECUTION",
+        "message": "Fatal error: OPENAI_API_KEY environment variable is not set"
+      }
+    ]
+  },
+  {
+    "domain": "allbirds.com",
+    "queriesTested": [],
+    "issues": [
+      {
+        "site": "allbirds.com",
+        "severity": "CRITICAL",
+        "field": "EXECUTION",
+        "message": "Fatal error: OPENAI_API_KEY environment variable is not set"
+      }
+    ]
+  }
+]

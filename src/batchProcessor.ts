@@ -10,7 +10,7 @@ import { aiFullAnalysis } from './aiAgent';
 import { v4 as uuidv4 } from 'uuid';
 
 // Configuration
-const CONCURRENCY_LIMIT = 2; // Max parallel browser sessions (reduced from 5 to prevent session exhaustion)
+const CONCURRENCY_LIMIT = process.env.BATCH_CONCURRENCY ? parseInt(process.env.BATCH_CONCURRENCY) : 5; // Increased default concurrency
 const POLL_INTERVAL_MS = 10000; // Check for new work every 10 seconds
 const BATCH_SIZE = 10; // Items to fetch per poll
 
@@ -37,6 +37,27 @@ export function startBatchProcessor(): void {
   processorInterval = setInterval(() => {
     processNextBatch();
   }, POLL_INTERVAL_MS);
+}
+
+/**
+ * Recover items that were stuck in 'running' state from a previous crash
+ */
+export async function recoverStuckItems(): Promise<void> {
+  const db = getDb();
+  if (!db) return;
+
+  try {
+    const result = await db.batchJobItem.updateMany({
+      where: { status: 'running' },
+      data: { status: 'queued' }
+    });
+
+    if (result.count > 0) {
+      console.log(`[BATCH] Recovered ${result.count} stuck items (reset to queued)`);
+    }
+  } catch (error) {
+    console.error('[BATCH] Failed to recover stuck items:', error);
+  }
 }
 
 /**
@@ -221,8 +242,15 @@ async function processSingleItem(
   console.log(`[BATCH] Processing: ${item.domain}`);
 
   try {
-    // Run the full analysis
-    const result = await aiFullAnalysis(jobId, item.domain);
+    // Run the full analysis with timeout
+    const TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes timeout
+
+    const analysisPromise = aiFullAnalysis(jobId, item.domain);
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Analysis timed out')), TIMEOUT_MS)
+    );
+
+    const result = await Promise.race([analysisPromise, timeoutPromise]);
 
     // Save successful result
     await db.batchJobItem.update({

@@ -47,9 +47,10 @@ model BatchJob {
   completedCount Int    @default(0) @map("completed_count")
   failedCount   Int      @default(0) @map("failed_count")
   status        String   @default("pending") @map("status")
-  startedAt     DateTime @default(now()) @map("started_at")
+  startedAt     DateTime? @map("started_at")
   completedAt   DateTime? @map("completed_at")
   createdAt     DateTime @default(now()) @map("created_at")
+  items         BatchJobItem[]
 
   @@map("batch_jobs")
 }
@@ -63,6 +64,8 @@ model BatchJobItem {
   error      String?
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
+
+  batch      BatchJob @relation(fields: [batchId], references: [batchId])
 
   @@index([batchId])
   @@map("batch_job_items")

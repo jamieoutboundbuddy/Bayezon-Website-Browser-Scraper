@@ -465,7 +465,7 @@ async function uploadCsv() {
 
     const data = await response.json();
     currentBatchId = data.batchId;
-
+    localStorage.setItem('currentBatchId', currentBatchId);
     showToast(`✓ Batch uploaded! ${data.totalDomains} domains queued for processing.`);
 
     // Show batch status
@@ -503,7 +503,9 @@ async function pollBatchStatus() {
     if (!response.ok) {
       if (response.status === 404) {
         clearInterval(batchPollInterval);
+        localStorage.removeItem('currentBatchId');
         showToast('Batch not found');
+        return;
       }
       return;
     }
@@ -524,8 +526,19 @@ async function pollBatchStatus() {
     document.getElementById('batch-id-display').textContent = data.batchId;
 
     // Stop polling when complete
+    // Update export button visibility
+    const exportBtn = document.getElementById('btn-export-csv');
+    if (data.status === 'completed' || data.progress.completed > 0) {
+      exportBtn.classList.remove('hidden');
+    }
+
     if (data.status === 'completed' || data.status === 'failed') {
       clearInterval(batchPollInterval);
+      localStorage.removeItem('currentBatchId'); // Clear on completion so next visit starts fresh? Or keep it?
+      // Actually, let's keep it so they can see results on refresh. 
+      // Only clear if they explicitly start a new one or if not found.
+      // But for now, let's not auto-clear on completion so they can export.
+
       showToast(`Batch ${data.status === 'completed' ? 'completed' : 'failed'}!`);
     }
 
@@ -541,6 +554,68 @@ function copyBatchId() {
   const batchId = document.getElementById('batch-id-display').textContent;
   navigator.clipboard.writeText(batchId);
   showToast('Batch ID copied!');
+}
+
+/**
+ * Export batch results to CSV
+ */
+async function exportBatchResults() {
+  if (!currentBatchId) return;
+
+  try {
+    showToast('Preparing CSV...');
+    // Ask for password
+    const password = prompt('Enter CSV password to export:');
+    if (!password) return;
+
+    // Fetch all results
+    const response = await fetch(`/api/batch/${currentBatchId}/results?limit=10000`, {
+      headers: {
+        'x-csv-password': password
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch results');
+    }
+
+    const data = await response.json();
+    if (!data.results || data.results.length === 0) {
+      showToast('No results to export');
+      return;
+    }
+
+    // Convert to CSV
+    const headers = ['Domain', 'Verdict', 'Confidence', 'Reason', 'CompletedAt'];
+    const csvRows = [headers.join(',')];
+
+    for (const item of data.results) {
+      const row = [
+        item.domain,
+        item.result?.verdict || 'PENDING',
+        item.result?.confidence || '',
+        `"${(item.result?.reason || '').replace(/"/g, '""')}"`,
+        item.completedAt
+      ];
+      csvRows.push(row.join(','));
+    }
+
+    const csvContent = csvRows.join('\\n');
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `batch_results_${currentBatchId}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+
+    showToast('CSV downloaded!');
+  } catch (err) {
+    console.error(err);
+    showToast('Failed to export CSV: ' + err.message);
+  }
 }
 
 /**
@@ -587,6 +662,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Restore previous search results if available
   restoreFromCache();
+
+  // On load, check for saved batch
+  const savedBatchId = localStorage.getItem('currentBatchId');
+  if (savedBatchId) {
+    currentBatchId = savedBatchId;
+    // Show batch tab
+    switchTab('batch');
+    // Show status section
+    document.getElementById('batch-empty-state').classList.add('hidden');
+    document.getElementById('batch-status-section').classList.remove('hidden');
+    // Start polling
+    pollBatchStatus();
+    batchPollInterval = setInterval(() => pollBatchStatus(), 5000);
+  }
 });
 
 /**

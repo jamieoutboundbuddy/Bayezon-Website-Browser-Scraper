@@ -113,29 +113,32 @@ function getArtifactPath(jobId: string, domain: string, stage: string, ext: 'png
 // ============================================================================
 
 export async function createStagehandSession(): Promise<Stagehand> {
+  const env = (process.env.STAGEHAND_ENV as 'LOCAL' | 'BROWSERBASE') || 'BROWSERBASE';
   const apiKey = process.env.BROWSERBASE_API_KEY;
   const projectId = process.env.BROWSERBASE_PROJECT_ID;
 
-  if (!apiKey || !projectId) {
-    throw new Error('BROWSERBASE_API_KEY and BROWSERBASE_PROJECT_ID must be set');
+  console.log(`  [AI] Creating Stagehand session (Env: ${env})...`);
+
+  if (env === 'BROWSERBASE' && (!apiKey || !projectId)) {
+    throw new Error('BROWSERBASE_API_KEY and BROWSERBASE_PROJECT_ID must be set for BROWSERBASE env');
   }
 
-  console.log('  [AI] Creating Stagehand session...');
-  console.log(`  [AI] Using Project ID: ${projectId}`);
-
   const stagehand = new Stagehand({
-    env: 'BROWSERBASE',
-    apiKey,
-    projectId,
+    env,
+    apiKey: env === 'BROWSERBASE' ? apiKey : undefined,
+    projectId: env === 'BROWSERBASE' ? projectId : undefined,
     verbose: 1,           // ENABLE verbose logging for debug
+    // @ts-ignore - headless might not be in V3Options type but is passed to Playwright
+    headless: env === 'BROWSERBASE' ? true : false, // Headful locally
   });
 
   console.log('  [AI] Awaiting stagehand.init()...');
   try {
     const initPromise = stagehand.init();
-    // Add a timeout race
+    // Add a timeout race (longer for local)
+    const timeoutVal = env === 'LOCAL' ? 60000 : 30000;
     const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('Stagehand init timed out after 30s')), 30000)
+      setTimeout(() => reject(new Error(`Stagehand init timed out after ${timeoutVal / 1000}s`)), timeoutVal)
     );
 
     await Promise.race([initPromise, timeoutPromise]);
@@ -295,6 +298,8 @@ export async function dismissPopups(stagehand: any, page: any): Promise<void> {
           '[class*="klaviyo"] [aria-label*="lose"]',
           // Aritzia / Famous Footwear Specifics
           'button[class*="close-icon"]',
+          // Crocs Specific
+          '.ok-modal__close-btn',
           'div[class*="close-icon"]',
           '[id*="close-button"]',
           '[class*="utility-overlay"] button',
@@ -778,6 +783,9 @@ export async function executeSearchWithFallbacks(
     ...(domainLower.includes('famousfootwear') ? [
       `/search/${encodeURIComponent(query)}`,
       `/#q=${encodeURIComponent(query)}`
+    ] : []),
+    ...(domainLower.includes('uniqlo') ? [
+      `/us/en/search/?q=${encodeURIComponent(query)}`
     ] : []),
   ];
 

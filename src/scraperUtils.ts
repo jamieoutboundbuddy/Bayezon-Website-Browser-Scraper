@@ -46,7 +46,11 @@ export async function waitForProducts(page: any): Promise<void> {
             '[class*="result"]',
             'img[src*="product"]',
             'a[href*="/product/"]',
-            'a[href*="/products/"]'
+            'a[href*="/products/"]',
+            // Site specific
+            '.product-tile', // Uniqlo
+            '.ok-card',      // Crocs
+            '.ok-card__product-name'
         ];
 
         // Use evaluate directly to avoid serialization complexity with waitForFunction arguments in some environments

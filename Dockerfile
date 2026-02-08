@@ -38,4 +38,4 @@ EXPOSE 3000
 
 # Start server with database setup
 # Use a startup script for better logging and error handling
-CMD ["sh", "-c", "echo '[STARTUP] Running prisma db push...' && bun x prisma db push --accept-data-loss 2>&1 && echo '[STARTUP] Database setup complete' && bun dist/server.js"]
+CMD ["sh", "-c", "echo '[STARTUP] Running prisma db push...' && bun x prisma db push --accept-data-loss 2>&1 && echo '[STARTUP] Database setup complete' && bun src/server.ts"]
